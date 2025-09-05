@@ -104,6 +104,7 @@ model PendingEvent {
   title           String
   date            DateTime
   description     String?   @db.Text
+  status        String
   confidenceScore Float?
   createdAt       DateTime  @default(now())
 
