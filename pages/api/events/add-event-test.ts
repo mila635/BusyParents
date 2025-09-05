@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { addPendingEvent } from '../../lib/shared-state';
+// import { addPendingEvent } from '../../lib/shared-state';
+import { addPendingEvent } from '@/lib/shared-state';
 import { v4 as uuidv4 } from 'uuid';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
