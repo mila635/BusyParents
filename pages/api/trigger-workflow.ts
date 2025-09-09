@@ -5,9 +5,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // IMPORTANT: Replace this placeholder with the actual webhook URL from your Make.com scenario.
     // To ensure security, you should store this URL as an environment variable (e.g., process.env.MAKE_WEBHOOK_URL)
     // and never hardcode it directly in your application.
-    const makeWebhookUrl = 'https://us2.make.com/api/v2/hooks/1234567890abcdefg'; // PLACEHOLDER URL
+    const makeWebhookUrl = 'https://hook.us2.make.com/jeh7g4itqovoivtlr5y2dg6gsf4fqx7x'; // PLACEHOLDER URL
 
-    if (makeWebhookUrl === 'https://us2.make.com/api/v2/hooks/1234567890abcdefg') {
+    if (makeWebhookUrl === 'https://hook.us2.make.com/jeh7g4itqovoivtlr5y2dg6gsf4fqx7x') {
       return res.status(500).json({ error: 'Webhook URL is not configured. Please update the trigger-workflow.ts file with your actual URL.' });
     }
 
