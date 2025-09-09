@@ -1,35 +1,28 @@
-import type { NextApiRequest, NextApiResponse } from "next";
-import { prisma } from "@/lib/database";
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { updateEvent, deleteEvent } from '../../../lib/shared-state';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { eventId } = req.query;
-  const id = Array.isArray(eventId) ? eventId[0] : eventId;
+  const { id } = req.query;
+  const eventId = Array.isArray(id) ? id[0] : id;
 
-  if (!id) {
-    return res.status(400).json({ error: "Event ID is required." });
+  if (!eventId) {
+    return res.status(400).json({ error: 'Event ID is required.' });
   }
 
-  if (req.method === "PUT") {
-    try {
-      const updatedEvent = await prisma.pendingEvent.update({
-        where: { id },
-        data: req.body,
-      });
-      res.status(200).json(updatedEvent);
-    } catch (error) {
-      console.error("API Error updating event:", error);
-      res.status(500).json({ error: "Failed to update event." });
+  try {
+    if (req.method === 'PUT') {
+      const eventData = req.body;
+      await updateEvent(eventId, eventData);
+      res.status(200).json({ success: true, message: 'Event updated successfully.' });
+    } else if (req.method === 'DELETE') {
+      await deleteEvent(eventId);
+      res.status(200).json({ success: true, message: 'Event deleted successfully.' });
+    } else {
+      res.setHeader('Allow', ['PUT', 'DELETE']);
+      res.status(405).end(`Method ${req.method} Not Allowed`);
     }
-  } else if (req.method === "DELETE") {
-    try {
-      await prisma.pendingEvent.delete({ where: { id } });
-      res.status(204).end();
-    } catch (error) {
-      console.error("API Error deleting event:", error);
-      res.status(500).json({ error: "Failed to delete event." });
-    }
-  } else {
-    res.setHeader("Allow", ["PUT", "DELETE"]);
-    res.status(405).end(`Method ${req.method} Not Allowed`);
+  } catch (error) {
+    console.error('Error handling event request:', error);
+    res.status(500).json({ success: false, error: 'Failed to process event request.' });
   }
 }
