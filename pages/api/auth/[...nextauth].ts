@@ -338,9 +338,11 @@
 
 import NextAuth from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
+import type { JWT } from "next-auth/jwt";
+import type { Session, User } from "next-auth";
 
 // This function takes an expired token and uses the refresh token to get a new access token.
-async function refreshAccessToken(token: any) {
+async function refreshAccessToken(token: JWT): Promise<JWT> {
   try {
     const url = "https://oauth2.googleapis.com/token";
     const response = await fetch(url, {
@@ -367,7 +369,6 @@ async function refreshAccessToken(token: any) {
       ...token,
       accessToken: refreshedTokens.access_token,
       expiresAt: Math.floor(Date.now() / 1000) + refreshedTokens.expires_in,
-      // If a new refresh token is provided, use it; otherwise, use the old one.
       refreshToken: refreshedTokens.refresh_token ?? token.refreshToken,
     };
   } catch (error) {
@@ -377,93 +378,70 @@ async function refreshAccessToken(token: any) {
 }
 
 export default NextAuth({
-  // Configure Google as an authentication provider.
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID as string,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
       authorization: {
         params: {
-          // IMPORTANT: These parameters are crucial for getting a refresh token.
-          access_type: 'offline', // Requests a refresh token
-          prompt: 'consent', // Forces the user to re-consent, ensuring a refresh token is issued
+          access_type: 'offline',
+          prompt: 'consent',
         },
       },
     }),
   ],
 
-  // The `secret` is used to sign and encrypt the JWT and session cookies.
-  // It should be a long, random string.
   secret: process.env.NEXTAUTH_SECRET as string,
   
-  // Use JWTs for session strategy to enable server-side access to tokens.
   session: {
     strategy: 'jwt',
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    maxAge: 30 * 24 * 60 * 60,
   },
 
-  // Define custom pages for handling sign-in, errors, and verification.
   pages: {
     signIn: '/auth/signin',
     error: '/auth/error',
     verifyRequest: '/auth/verify-request',
   },
 
-  // Callbacks are used to customize the session and JWT.
   callbacks: {
-    async jwt({ token, user, account }) {
-      // Step 1: Initial sign-in. This runs only on the first login.
+    async jwt({ token, user, account }: { token: JWT; user?: User; account?: any; }): Promise<JWT> {
       if (account && user) {
-        console.log('NextAuth: Initial sign-in for user:', user.email);
-        
-        // Return a new token with all the necessary information.
-        // We calculate the expiry time for the access token.
         return {
           ...token,
           accessToken: account.access_token,
           refreshToken: account.refresh_token,
-          accessTokenExpires: (account.expires_at as number) * 1000, // Convert to milliseconds
+          accessTokenExpires: (account.expires_at as number) * 1000,
           user,
         };
       }
 
-      // Step 2: Return previous token if the access token is still valid.
-      // We check if the token exists and if the current time is less than the expiry time.
       if (token.accessTokenExpires && Date.now() < token.accessTokenExpires) {
         return token;
       }
 
-      // Step 3: Access token has expired, try to update it using the refresh token.
-      // This is the core of the token rotation logic.
       if (token.refreshToken) {
         const refreshedToken = await refreshAccessToken(token);
         return refreshedToken;
       }
 
-      // If there's no refresh token, return the original token. This should trigger a re-login.
       return token;
     },
 
-    async session({ session, token }) {
-      // Send properties from the JWT to the session object, which is available on the client.
-      session.user = token.user as any;
+    async session({ session, token }: { session: Session; token: JWT; }): Promise<Session> {
+      session.user = token.user as User;
       session.accessToken = token.accessToken as string;
-      session.error = token.error;
-      
-      console.log('NextAuth: Session created for user:', session.user.email);
+      session.error = token.error as string;
       
       return session;
     },
     
-    // Define a custom redirect callback for security.
     async redirect({ url, baseUrl }) {
-      // Allow relative URLs or URLs with the same origin.
       if (url.startsWith('/')) return `${baseUrl}${url}`;
       else if (new URL(url).origin === baseUrl) return url;
       return baseUrl;
     },
   },
 
-  // Enable debug mode for verbose logging in development.
   debug: true,
 });
