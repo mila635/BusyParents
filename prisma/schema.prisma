@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,29 +7,37 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
+
+enum PendingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model User {
-  id              String          @id @default(cuid())
-  email           String          @unique
-  name            String?
-  image           String?
-  provider        String          @default("google")
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  lastLoginAt     DateTime?
+  id            String          @id @default(cuid())
+  email         String          @unique
+  name          String?
+  image         String?
+  provider      String          @default("google")
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  lastLoginAt   DateTime?
 
   // Relations
-  tokens          UserToken?
-  settings        UserSettings?
-  logs            UserLog[]
-  events          CalendarEvent[]
-  pendingEvents   PendingEvent[]  // Add this relation
+  tokens        UserToken[]      // ✅ one-to-many
+  settings      UserSettings?
+  logs          UserLog[]
+  events        CalendarEvent[]
+  pendingEvents PendingEvent[]
 
   @@map("users")
 }
 
 model UserToken {
   id           String   @id @default(cuid())
-  userId       String   @unique
+  userId       String
   accessToken  String
   refreshToken String?
   expiresAt    DateTime
@@ -40,23 +45,22 @@ model UserToken {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_tokens")
+  @@index([userId])
 }
 
 model UserSettings {
-  id                      String   @id @default(cuid())
-  userId                  String   @unique
-  emailProcessingEnabled  Boolean  @default(true)
-  calendarSyncEnabled     Boolean  @default(true)
-  reminderEnabled         Boolean  @default(true)
-  timezone                String   @default("UTC")
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
+  id                     String   @id @default(cuid())
+  userId                 String   @unique
+  emailProcessingEnabled Boolean  @default(true)
+  calendarSyncEnabled    Boolean  @default(true)
+  reminderEnabled        Boolean  @default(true)
+  timezone               String   @default("UTC")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
-  // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_settings")
@@ -72,16 +76,16 @@ model UserLog {
   errorMessage String?
   createdAt    DateTime  @default(now())
 
-  // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_logs")
+  @@index([userId])
 }
 
 model CalendarEvent {
   id            String    @id @default(cuid())
   userId        String
-  googleEventId String?
+  googleEventId String?   @unique
   title         String
   description   String?
   startTime     DateTime
@@ -91,24 +95,25 @@ model CalendarEvent {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("calendar_events")
+  @@index([userId])
 }
 
-// Model to represent a pending event identified by the AI
 model PendingEvent {
-  id              String    @id @default(cuid())
+  id              String         @id @default(cuid())
   userId          String
   title           String
   date            DateTime
-  description     String?   @db.Text
-  status        String
+  description     String?        @db.Text
+  status          PendingStatus  @default(PENDING)
   confidenceScore Float?
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("pending_events")
+  @@index([userId])
 }
