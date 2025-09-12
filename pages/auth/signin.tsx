@@ -9,17 +9,22 @@ export default function SignIn() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
 
+  // Redirect authenticated users to dashboard
+  useEffect(() => {
+    if (status === 'authenticated') {
+      router.push('/dashboard')
+    }
+  }, [status, router])
+
   // Use the configured Make.com webhook URL from environment
   const MAKE_WEBHOOK_URL = process.env.MAKE_EMAIL_PROCESSING_WEBHOOK_URL || ""
 
+  // Trigger webhook when user becomes authenticated
   useEffect(() => {
-    if (status === 'authenticated') {
+    if (status === 'authenticated' && session?.accessToken) {
       setIsLoading(false)
       
-      // Redirect to dashboard immediately
-      router.push('/dashboard')
-      
-      // Trigger email processing asynchronously without blocking redirect
+      // Trigger email processing asynchronously in background
       const triggerEmailProcessing = async () => {
         try {
           const response = await fetch(MAKE_WEBHOOK_URL, {
@@ -44,7 +49,7 @@ export default function SignIn() {
       // Run webhook call in background without awaiting
       triggerEmailProcessing()
     }
-  }, [status, router, session])
+  }, [status, session])
 
   // Cleanup loading state if user navigates away
   useEffect(() => {
