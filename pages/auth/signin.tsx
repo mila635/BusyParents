@@ -8,40 +8,49 @@ export default function SignIn() {
   const { data: session, status } = useSession()
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
+  const [hasRedirected, setHasRedirected] = useState(false)
 
   // Redirect authenticated users to dashboard
   useEffect(() => {
-    if (status === 'authenticated') {
-      router.push('/dashboard')
-    }
-  }, [status, router])
-
-  // Use the configured Make.com webhook URL from environment
-  const MAKE_WEBHOOK_URL = process.env.MAKE_EMAIL_PROCESSING_WEBHOOK_URL || ""
-
-  // Trigger webhook when user becomes authenticated
-  useEffect(() => {
-    if (status === 'authenticated' && session?.accessToken) {
+    if (status === 'authenticated' && session && !hasRedirected) {
+      console.log('User authenticated, redirecting to dashboard...')
+      setHasRedirected(true)
       setIsLoading(false)
       
+      // Use replace instead of push to prevent back button issues
+      router.replace('/dashboard')
+    }
+  }, [status, session, router, hasRedirected])
+
+  // Use the configured Make.com webhook URL from environment
+  const MAKE_WEBHOOK_URL = process.env.NEXT_PUBLIC_MAKE_EMAIL_PROCESSING_WEBHOOK_URL || ""
+
+  // Trigger webhook when user becomes authenticated (moved to dashboard)
+  useEffect(() => {
+    if (status === 'authenticated' && session?.accessToken && !hasRedirected) {
       // Trigger email processing asynchronously in background
       const triggerEmailProcessing = async () => {
         try {
-          const response = await fetch(MAKE_WEBHOOK_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              user: {
-                accessToken: session?.accessToken,
-                email: session?.user?.email,
-              }
-            }),
-          })
+          if (MAKE_WEBHOOK_URL) {
+            const response = await fetch('/api/trigger-workflow', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'user_signup',
+                user: {
+                  email: session?.user?.email,
+                  name: session?.user?.name,
+                  accessToken: session?.accessToken
+                }
+              }),
+            })
 
-          const text = await response.text()
-          console.log('Webhook response:', text)
+            if (response.ok) {
+              console.log('User signup webhook triggered successfully')
+            }
+          }
         } catch (error) {
-          console.error('Failed to trigger Make.com webhook:', error)
+          console.error('Failed to trigger signup webhook:', error)
           // Don't block user experience if webhook fails
         }
       }
@@ -49,28 +58,29 @@ export default function SignIn() {
       // Run webhook call in background without awaiting
       triggerEmailProcessing()
     }
-  }, [status, session])
+  }, [status, session, MAKE_WEBHOOK_URL, hasRedirected])
 
-  // Cleanup loading state if user navigates away
-  useEffect(() => {
-    return () => {
+  const handleGoogleSignIn = async () => {
+    if (isLoading) return
+    
+    setIsLoading(true)
+    console.log('Starting Google sign-in process...')
+
+    try {
+      const result = await signIn('google', { 
+        callbackUrl: '/dashboard',
+        redirect: false
+      })
+      
+      if (result?.error) {
+        console.error('Sign-in error:', result.error)
+        setIsLoading(false)
+      }
+      // If successful, the useEffect will handle the redirect
+    } catch (error) {
+      console.error('Sign-in error:', error)
       setIsLoading(false)
     }
-  }, [])
-
-  const handleGoogleSignIn = () => {
-    setIsLoading(true)
-
-    const timeout = setTimeout(() => {
-      setIsLoading(false)
-    }, 30000)
-
-    signIn('google', { callbackUrl: '/dashboard' })
-      .catch((error) => {
-        console.error('Sign-in error:', error)
-        setIsLoading(false)
-        clearTimeout(timeout)
-      })
   }
 
   return (

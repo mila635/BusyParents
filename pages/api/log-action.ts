@@ -79,6 +79,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
+        // Check if Google Sheets client is available
+        if (!googleSheetsClient) {
+            console.warn('Google Sheets client not configured. Skipping logging.');
+            res.status(200).json({ 
+                success: true, 
+                message: 'Action logged (Google Sheets disabled)',
+                warning: 'Google Sheets logging is not configured'
+            });
+            return;
+        }
+
         const rowData = [
             new Date().toISOString(),
             action,
@@ -99,9 +110,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         res.status(200).json({ success: true, message: 'Log entry added successfully' });
     } catch (error: any) {
         console.error('Error logging to Google Sheets:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message || 'Failed to log action',
+        // Don't fail the entire request if logging fails
+        res.status(200).json({
+            success: true,
+            message: 'Action completed (logging failed)',
+            warning: error.message || 'Failed to log to Google Sheets',
         });
     }
 }

@@ -40,18 +40,20 @@ const privateKey = "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAAS
 const clientEmail = "busy-parents-sheets-service@mytestoauth-470505.iam.gserviceaccount.com";
 
 if (!privateKey || !clientEmail) {
-  throw new Error('Google Sheets client credentials not configured correctly.');
+  console.warn('Google Sheets credentials not configured. Sheets logging will be disabled.');
+  // Export a null client to prevent errors
+  export const googleSheetsClient = null;
+} else {
+  const auth = new JWT({
+    email: clientEmail,
+    key: privateKey,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+
+  const sheets = new GoogleApis().sheets({
+    version: 'v4',
+    auth,
+  });
+
+  export const googleSheetsClient = sheets;
 }
-
-const auth = new JWT({
-  email: clientEmail,
-  key: privateKey,
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
-
-const sheets = new GoogleApis().sheets({
-  version: 'v4',
-  auth,
-});
-
-export const googleSheetsClient = sheets;
