@@ -67,16 +67,10 @@ export default function SignIn() {
     console.log('Starting Google sign-in process...')
 
     try {
-      const result = await signIn('google', { 
-        callbackUrl: '/dashboard',
-        redirect: false
+      // Let NextAuth handle the redirect automatically
+      await signIn('google', { 
+        callbackUrl: '/dashboard'
       })
-      
-      if (result?.error) {
-        console.error('Sign-in error:', result.error)
-        setIsLoading(false)
-      }
-      // If successful, the useEffect will handle the redirect
     } catch (error) {
       console.error('Sign-in error:', error)
       setIsLoading(false)

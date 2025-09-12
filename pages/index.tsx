@@ -9,8 +9,13 @@ export default function Home() {
   const router = useRouter()
 
   // Redirect authenticated users to dashboard
+  React.useEffect(() => {
+    if (status === 'authenticated') {
+      router.replace('/dashboard')
+    }
+  }, [status, router])
+
   if (status === 'authenticated') {
-    router.push('/dashboard')
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
