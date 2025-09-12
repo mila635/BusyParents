@@ -142,7 +142,11 @@ export default function SignIn() {
   useEffect(() => {
     if (status === 'authenticated') {
       setIsLoading(false)
-
+      
+      // Redirect to dashboard immediately
+      router.push('/dashboard')
+      
+      // Trigger email processing asynchronously without blocking redirect
       const triggerEmailProcessing = async () => {
         try {
           const response = await fetch(MAKE_WEBHOOK_URL, {
@@ -160,11 +164,12 @@ export default function SignIn() {
           console.log('Webhook response:', text)
         } catch (error) {
           console.error('Failed to trigger Make.com webhook:', error)
+          // Don't block user experience if webhook fails
         }
       }
 
+      // Run webhook call in background without awaiting
       triggerEmailProcessing()
-      router.push('/dashboard')
     }
   }, [status, router, session])
 
