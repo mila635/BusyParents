@@ -1,0 +1,290 @@
+{
+  "scenario_name": "Busy Parents Email Processing Workflow",
+  "description": "Ready-made modules for Make.com - Copy each module configuration directly",
+  "modules": [
+    {
+      "id": 1,
+      "name": "Gmail - Fetch Unread Emails",
+      "app": "HTTP",
+      "operation": "Make a Request",
+      "configuration": {
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "method": "GET",
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer {{connection.accessToken}}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "qs": [
+          {
+            "name": "q",
+            "value": "is:unread newer_than:2h"
+          },
+          {
+            "name": "maxResults",
+            "value": "5"
+          }
+        ]
+      },
+      "connection": {
+        "type": "Google (Generic)",
+        "scopes": [
+          "https://www.googleapis.com/auth/gmail.readonly",
+          "https://www.googleapis.com/auth/calendar",
+          "https://www.googleapis.com/auth/spreadsheets"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "name": "Gmail - Get Email Details",
+      "app": "HTTP",
+      "operation": "Make a Request",
+      "configuration": {
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages/{{1.messages[].id}}",
+        "method": "GET",
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer {{connection.accessToken}}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "qs": [
+          {
+            "name": "format",
+            "value": "full"
+          }
+        ]
+      },
+      "connection": "Same as Module 1"
+    },
+    {
+      "id": 3,
+      "name": "OpenAI - Email Analysis",
+      "app": "HTTP",
+      "operation": "Make a Request",
+      "configuration": {
+        "url": "https://api.openai.com/v1/chat/completions",
+        "method": "POST",
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer sk-YOUR_OPENAI_API_KEY_HERE"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an AI assistant for busy parents. Analyze emails and respond ONLY in valid JSON format: {\"category\": \"urgent\", \"priority\": \"high\", \"create_event\": true, \"title\": \"Meeting with teacher\", \"date\": \"2024-01-20\", \"summary\": \"School meeting about progress\"}"
+            },
+            {
+              "role": "user",
+              "content": "Email Subject: {{get(2.payload.headers; 'Subject')}}\n\nEmail From: {{get(2.payload.headers; 'From')}}\n\nEmail Body: {{2.snippet}}\n\nAnalyze this email and categorize it."
+            }
+          ],
+          "max_tokens": 300,
+          "temperature": 0.2
+        }
+      },
+      "setup_note": "Replace 'sk-YOUR_OPENAI_API_KEY_HERE' with your actual OpenAI API key"
+    },
+    {
+      "id": 4,
+      "name": "Router - Priority Based",
+      "app": "Router",
+      "operation": "Router",
+      "configuration": {
+        "routes": [
+          {
+            "name": "High Priority - Create Event",
+            "condition": "{{parseJSON(3.data.choices[0].message.content).create_event}} = true"
+          },
+          {
+            "name": "Low Priority - Log Only",
+            "condition": "{{parseJSON(3.data.choices[0].message.content).create_event}} = false"
+          }
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "name": "Google Calendar - Create Event",
+      "app": "HTTP",
+      "operation": "Make a Request",
+      "configuration": {
+        "url": "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        "method": "POST",
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer {{connection.accessToken}}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "summary": "{{parseJSON(3.data.choices[0].message.content).title}}",
+          "description": "Auto-created from email: {{get(2.payload.headers; 'Subject')}}\n\nFrom: {{get(2.payload.headers; 'From')}}\n\nOriginal email snippet: {{2.snippet}}",
+          "start": {
+            "dateTime": "{{parseJSON(3.data.choices[0].message.content).date}}T14:00:00",
+            "timeZone": "America/New_York"
+          },
+          "end": {
+            "dateTime": "{{parseJSON(3.data.choices[0].message.content).date}}T15:00:00",
+            "timeZone": "America/New_York"
+          },
+          "reminders": {
+            "useDefault": true
+          }
+        }
+      },
+      "connection": "Same Google connection as Module 1",
+      "route": "Connect to Route 1 (High Priority)"
+    },
+    {
+      "id": 6,
+      "name": "Google Sheets - Log Data",
+      "app": "HTTP",
+      "operation": "Make a Request",
+      "configuration": {
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/YOUR_SPREADSHEET_ID_HERE/values/Sheet1:append",
+        "method": "POST",
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer {{connection.accessToken}}"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "qs": [
+          {
+            "name": "valueInputOption",
+            "value": "RAW"
+          },
+          {
+            "name": "insertDataOption",
+            "value": "INSERT_ROWS"
+          }
+        ],
+        "body": {
+          "values": [
+            [
+              "{{formatDate(now; 'YYYY-MM-DD HH:mm:ss')}}",
+              "{{get(2.payload.headers; 'From')}}",
+              "{{get(2.payload.headers; 'Subject')}}",
+              "{{parseJSON(3.data.choices[0].message.content).category}}",
+              "{{parseJSON(3.data.choices[0].message.content).priority}}",
+              "{{if(parseJSON(3.data.choices[0].message.content).create_event; 'Yes'; 'No')}}",
+              "{{2.id}}",
+              "{{parseJSON(3.data.choices[0].message.content).summary}}"
+            ]
+          ]
+        }
+      },
+      "connection": "Same Google connection as Module 1",
+      "setup_note": "Replace 'YOUR_SPREADSHEET_ID_HERE' with your actual Google Sheets ID",
+      "route": "Connect to both Route 1 and Route 2"
+    },
+    {
+      "id": 7,
+      "name": "Webhook - Update Local App",
+      "app": "HTTP",
+      "operation": "Make a Request",
+      "configuration": {
+        "url": "http://localhost:3000/api/webhook/make-status",
+        "method": "POST",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "status": "completed",
+          "emailsProcessed": 1,
+          "timestamp": "{{formatDate(now; 'YYYY-MM-DDTHH:mm:ss.sssZ')}}",
+          "lastEmailId": "{{2.id}}",
+          "scenarioName": "busy_parents_email_processing",
+          "executionId": "{{execution.id}}",
+          "userEmail": "{{get(2.payload.headers; 'To')}}",
+          "details": {
+            "email": {
+              "from": "{{get(2.payload.headers; 'From')}}",
+              "subject": "{{get(2.payload.headers; 'Subject')}}",
+              "snippet": "{{2.snippet}}"
+            },
+            "aiAnalysis": "{{3.data.choices[0].message.content}}",
+            "calendarEventCreated": "{{if(parseJSON(3.data.choices[0].message.content).create_event; 'true'; 'false')}}",
+            "sheetsLogged": "true"
+          }
+        }
+      },
+      "route": "Connect to both Route 1 and Route 2"
+    }
+  ],
+  "workflow_structure": {
+    "description": "Module connection flow",
+    "flow": [
+      "Module 1 (Gmail Fetch) → Module 2 (Email Details) → Module 3 (OpenAI Analysis) → Module 4 (Router)",
+      "Router Route 1 (High Priority): → Module 5 (Calendar) → Module 6 (Sheets) → Module 7 (Webhook)",
+      "Router Route 2 (Low Priority): → Module 6 (Sheets) → Module 7 (Webhook)"
+    ]
+  },
+  "required_replacements": {
+    "openai_api_key": {
+      "location": "Module 3 - Authorization header",
+      "replace": "sk-YOUR_OPENAI_API_KEY_HERE",
+      "with": "Your actual OpenAI API key from https://platform.openai.com/api-keys"
+    },
+    "spreadsheet_id": {
+      "location": "Module 6 - URL",
+      "replace": "YOUR_SPREADSHEET_ID_HERE",
+      "with": "Your Google Sheets ID from the URL"
+    },
+    "timezone": {
+      "location": "Module 5 - Calendar events",
+      "current": "America/New_York",
+      "change_to": "Your actual timezone"
+    }
+  },
+  "google_sheets_setup": {
+    "spreadsheet_name": "Busy Parents Email Log",
+    "headers": [
+      "Timestamp",
+      "From",
+      "Subject",
+      "Category",
+      "Priority",
+      "Event Created",
+      "Email ID",
+      "Summary"
+    ],
+    "instructions": [
+      "1. Go to Google Sheets (https://sheets.google.com)",
+      "2. Create new spreadsheet named 'Busy Parents Email Log'",
+      "3. Add the headers above in Row 1 (A1 to H1)",
+      "4. Copy the spreadsheet ID from the URL (between /d/ and /edit)",
+      "5. Replace 'YOUR_SPREADSHEET_ID_HERE' in Module 6 with this ID"
+    ]
+  }
+}

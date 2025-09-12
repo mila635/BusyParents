@@ -1,8 +1,22 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { withAuth } from "next-auth/middleware"
 
-export function middleware(request: NextRequest) {
-  const response = NextResponse.next()
+export default withAuth(
+  function middleware(request: NextRequest, token: any) {
+    const response = NextResponse.next()
+    
+    // Skip authentication for webhook endpoints
+    if (request.nextUrl.pathname.startsWith('/api/webhook/')) {
+      return response
+    }
+    
+    // Check admin routes
+    if (request.nextUrl.pathname.startsWith('/admin')) {
+      if (!token || token.role !== 'ADMIN' || !token.isActive) {
+        return NextResponse.redirect(new URL('/dashboard', request.url))
+      }
+    }
 
   // Security headers
   response.headers.set('X-Frame-Options', 'DENY')
@@ -45,8 +59,24 @@ export function middleware(request: NextRequest) {
     return new NextResponse(null, { status: 200, headers: response.headers })
   }
 
-  return response
-}
+    return response
+  },
+  {
+    callbacks: {
+      authorized: ({ token, req }) => {
+        // Allow access to public routes and webhooks
+        if (req.nextUrl.pathname === '/' || 
+            req.nextUrl.pathname.startsWith('/auth/') ||
+            req.nextUrl.pathname.startsWith('/api/auth/') ||
+            req.nextUrl.pathname.startsWith('/api/webhook/')) {
+          return true
+        }
+        // Require authentication for protected routes
+        return !!token
+      },
+    },
+  }
+)
 
 export const config = {
   matcher: [

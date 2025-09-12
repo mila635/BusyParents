@@ -43,13 +43,55 @@
 
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getEvents } from '../../../lib/shared-state';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../auth/[...nextauth]';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     try {
-      const pendingEvents = await getEvents();
-      res.status(200).json(pendingEvents);
+      const session = await getServerSession(req, res, authOptions);
+      
+      if (!session) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      // Find the user first
+      const user = await prisma.user.findUnique({
+        where: { email: session.user?.email! }
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const pendingEvents = await prisma.pendingEvent.findMany({
+        where: {
+          userId: user.id,
+          status: 'PENDING'
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      // Transform the data to match the expected interface
+      const transformedEvents = pendingEvents.map(event => ({
+        id: event.id,
+        title: event.title,
+        description: event.description || '',
+        startDate: event.date.toISOString(),
+        endDate: event.date.toISOString(), // Using same date for now
+        location: event.location || '',
+        source: event.source,
+        confidenceScore: event.confidenceScore || 0.8,
+        extractedFrom: event.extractedFrom || '',
+        createdAt: event.createdAt.toISOString()
+      }));
+
+      res.status(200).json(transformedEvents);
     } catch (error) {
       console.error('API Error fetching pending events:', error);
       res.status(500).json({ error: 'Failed to fetch pending events' });

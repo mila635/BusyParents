@@ -967,18 +967,33 @@ export default function Dashboard() {
   const [isSavingSettings, setIsSavingSettings] = useState(false)
   const [isTriggeringWorkflow, setIsTriggeringWorkflow] = useState(false)
 
+  // Fetch notification settings from API
+  const fetchNotificationSettings = async () => {
+    try {
+      const response = await fetch('/api/notifications/preferences')
+      if (response.ok) {
+        const data = await response.json()
+        setNotificationSettings({
+          emailAlerts: data.preferences.emailNotifications,
+          whatsappAlerts: data.preferences.whatsappNotifications,
+          emailAddress: session?.user?.email || '',
+          whatsappNumber: data.preferences.whatsappNumber || '',
+          reminderTiming: 30 // Default value
+        })
+      }
+    } catch (error) {
+      console.error('Error fetching notification settings:', error)
+    }
+  }
+
   // Fetch data on initial load and handle notification settings
   useEffect(() => {
     if (session?.accessToken && !hasCheckedStatus) {
       checkConnectionStatus()
       fetchDashboardData()
+      fetchNotificationSettings()
       setHasCheckedStatus(true)
       logUserAction('Dashboard Access', 'Dashboard', 'success', 'User accessed dashboard')
-    }
-    // Load notification settings from localStorage
-    const savedSettings = localStorage.getItem('notificationSettings')
-    if (savedSettings) {
-      setNotificationSettings(JSON.parse(savedSettings))
     }
   }, [session, hasCheckedStatus])
 
@@ -1013,21 +1028,40 @@ export default function Dashboard() {
   // Handle event approval
   const handleApproveEvent = async (eventId: string) => {
     try {
-      const response = await fetch(`/api/events/${eventId}/approve`, {
+      // First approve the event in the database
+      const approveResponse = await fetch('/api/events/approve', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId })
       })
       
-      if (response.ok) {
+      if (!approveResponse.ok) {
+        const errorData = await approveResponse.json()
+        throw new Error(errorData.error || 'Failed to approve event')
+      }
+
+      // Then create the calendar event
+      const calendarResponse = await fetch('/api/calendar/create-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId })
+      })
+      
+      if (calendarResponse.ok) {
         setPendingEvents(prev => prev.filter(event => event.id !== eventId))
-        setErrorMessage('Event approved and added to calendar!')
+        setErrorMessage('✅ Event approved and added to Google Calendar!')
         setTimeout(() => setErrorMessage(null), 3000)
-        logUserAction('Approve Event', 'Pending Events', 'success', `Event ${eventId} approved`)
+        logUserAction('Approve Event', 'Calendar', 'success', `Event ${eventId} approved and added to calendar`)
         fetchDashboardData(); // Refresh data to update stats
+      } else {
+        const calendarError = await calendarResponse.json()
+        setErrorMessage(`⚠️ Event approved but failed to add to calendar: ${calendarError.message}`)
+        setTimeout(() => setErrorMessage(null), 5000)
+        logUserAction('Create Calendar Event', 'Calendar', 'failed', `Failed to create calendar event for ${eventId}`)
       }
     } catch (error) {
       console.error('Error approving event:', error)
-      setErrorMessage('Failed to approve event. Please try again.')
+      setErrorMessage('❌ Failed to approve event. Please try again.')
       setTimeout(() => setErrorMessage(null), 3000)
       logUserAction('Approve Event', 'Pending Events', 'failed', `Failed to approve event ${eventId}`)
     }
@@ -1036,9 +1070,10 @@ export default function Dashboard() {
   // Handle event rejection
   const handleRejectEvent = async (eventId: string) => {
     try {
-      const response = await fetch(`/api/events/${eventId}/reject`, {
+      const response = await fetch('/api/events/reject', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId })
       })
       
       if (response.ok) {
@@ -1046,6 +1081,10 @@ export default function Dashboard() {
         setErrorMessage('Event rejected successfully.')
         setTimeout(() => setErrorMessage(null), 3000)
         logUserAction('Reject Event', 'Pending Events', 'success', `Event ${eventId} rejected`)
+      } else {
+        const errorData = await response.json()
+        setErrorMessage(errorData.error || 'Failed to reject event')
+        setTimeout(() => setErrorMessage(null), 3000)
       }
     } catch (error) {
       console.error('Error rejecting event:', error)
@@ -1176,10 +1215,26 @@ export default function Dashboard() {
   const handleTriggerWorkflow = async () => {
     setIsTriggeringWorkflow(true);
     try {
-      const response = await fetch('/api/trigger-workflow', { method: 'POST' });
+      const response = await fetch('/api/trigger-workflow', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'process_emails',
+          additionalData: {
+            source: 'manual_scan',
+            timestamp: new Date().toISOString()
+          }
+        })
+      });
       const result = await response.json();
       if (response.ok) {
         setErrorMessage('✅ Workflow triggered! Check your inbox for new events to appear here shortly.');
+        // Refresh pending events after a short delay
+        setTimeout(() => {
+          fetchDashboardData();
+        }, 3000);
       } else {
         setErrorMessage(`❌ Failed to trigger workflow. Error: ${result.error}`);
       }
@@ -1194,14 +1249,31 @@ export default function Dashboard() {
   const handleSaveNotificationSettings = async () => {
     setIsSavingSettings(true)
     try {
-      // In a real app, this would be an API call to save to your database
-      localStorage.setItem('notificationSettings', JSON.stringify(notificationSettings))
-      setErrorMessage('✅ Notification settings saved successfully!')
-      setShowNotificationSettings(false)
+      const response = await fetch('/api/notifications/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          emailNotifications: notificationSettings.emailAlerts,
+          whatsappNotifications: notificationSettings.whatsappAlerts,
+          whatsappNumber: notificationSettings.whatsappNumber,
+          eventReminders: true,
+          weeklyDigest: true,
+          instantAlerts: false
+        })
+      })
+      
+      if (response.ok) {
+        setErrorMessage('✅ Notification settings saved successfully!')
+        setShowNotificationSettings(false)
+        logUserAction('Save Notification Settings', 'Notifications', 'success', 'User updated notification preferences')
+      } else {
+        throw new Error('Failed to save settings')
+      }
       setTimeout(() => setErrorMessage(null), 3000)
     } catch (error) {
       console.error('Error saving notification settings:', error)
       setErrorMessage('❌ Failed to save notification settings. Please try again.')
+      logUserAction('Save Notification Settings', 'Notifications', 'failed', 'Failed to save notification preferences')
       setTimeout(() => setErrorMessage(null), 5000)
     } finally {
       setIsSavingSettings(false)
@@ -1215,22 +1287,50 @@ export default function Dashboard() {
       return
     }
     try {
-      const response = await fetch('/api/send-whatsapp-test', {
+      const response = await fetch('/api/notifications/preferences?action=test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          number: notificationSettings.whatsappNumber,
-          message: 'This is a test message from your AI Schedule Assistant! 🤖'
+          type: 'whatsapp'
         })
       })
       if (response.ok) {
         setErrorMessage('✅ Test WhatsApp message sent successfully!')
+        logUserAction('Test WhatsApp', 'Notifications', 'success', 'User tested WhatsApp notification')
       } else {
-        throw new Error('Failed to send test message')
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to send test message')
       }
     } catch (error) {
       console.error('Error sending test WhatsApp:', error)
-      setErrorMessage('❌ Failed to send test WhatsApp message. Please check your number.')
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setErrorMessage(`❌ ${errorMessage}`)
+      logUserAction('Test WhatsApp', 'Notifications', 'failed', 'Failed to send test WhatsApp message')
+    }
+    setTimeout(() => setErrorMessage(null), 5000)
+  }
+
+  const handleTestEmail = async () => {
+    try {
+      const response = await fetch('/api/notifications/preferences?action=test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'email'
+        })
+      })
+      if (response.ok) {
+        setErrorMessage('✅ Test email notification sent successfully!')
+        logUserAction('Test Email', 'Notifications', 'success', 'User tested email notification')
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to send test email')
+      }
+    } catch (error) {
+      console.error('Error sending test email:', error)
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setErrorMessage(`❌ ${errorMessage}`)
+      logUserAction('Test Email', 'Notifications', 'failed', 'Failed to send test email notification')
     }
     setTimeout(() => setErrorMessage(null), 5000)
   }
@@ -1537,6 +1637,118 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Enhanced Analytics Section */}
+        <div className="mb-8 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-semibold text-gray-900">📊 Analytics Overview</h2>
+            <div className="text-sm text-gray-500">
+              Last updated: {new Date().toLocaleTimeString()}
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Productivity Metrics */}
+            <div className="space-y-4">
+              <h3 className="text-md font-medium text-gray-700">🚀 Productivity Metrics</h3>
+              
+              {/* Efficiency Score */}
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-600">Automation Efficiency</span>
+                  <span className="text-lg font-bold text-indigo-600">
+                    {stats.emailsProcessed > 0 ? Math.round((stats.eventsCreated / stats.emailsProcessed) * 100) : 0}%
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-indigo-600 h-2 rounded-full transition-all duration-500" 
+                    style={{ 
+                      width: `${stats.emailsProcessed > 0 ? Math.min((stats.eventsCreated / stats.emailsProcessed) * 100, 100) : 0}%` 
+                    }}
+                  ></div>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Events successfully created from processed emails
+                </p>
+              </div>
+              
+              {/* Weekly Goal Progress */}
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-600">Weekly Goal Progress</span>
+                  <span className="text-lg font-bold text-emerald-600">
+                    {Math.min(stats.eventsCreated, 10)}/10
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-emerald-600 h-2 rounded-full transition-all duration-500" 
+                    style={{ width: `${Math.min((stats.eventsCreated / 10) * 100, 100)}%` }}
+                  ></div>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Target: 10 events per week
+                </p>
+              </div>
+            </div>
+            
+            {/* Quick Insights */}
+            <div className="space-y-4">
+              <h3 className="text-md font-medium text-gray-700">💡 Quick Insights</h3>
+              
+              <div className="space-y-3">
+                <div className="flex items-center p-3 bg-yellow-50 rounded-lg">
+                  <div className="w-2 h-2 bg-yellow-400 rounded-full mr-3"></div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-700">
+                      {stats.timeSaved > 0 
+                        ? `You've saved ${stats.timeSaved} hours this month!` 
+                        : 'Start processing emails to see time savings'}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {stats.timeSaved > 0 
+                        ? 'That\'s equivalent to ' + Math.round(stats.timeSaved * 60 / 5) + ' manual calendar entries' 
+                        : 'Each automated event saves ~5 minutes'}
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center p-3 bg-blue-50 rounded-lg">
+                  <div className="w-2 h-2 bg-blue-400 rounded-full mr-3"></div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-700">
+                      {pendingEvents.length > 0 
+                        ? `${pendingEvents.length} events awaiting your review` 
+                        : 'All caught up! No pending events'}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {pendingEvents.length > 0 
+                        ? 'Review and approve to add to your calendar' 
+                        : 'New events will appear here automatically'}
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center p-3 bg-purple-50 rounded-lg">
+                  <div className="w-2 h-2 bg-purple-400 rounded-full mr-3"></div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-700">
+                      {stats.emailsProcessed > 0 
+                        ? `${stats.emailsProcessed} emails processed successfully` 
+                        : 'Connect Gmail to start processing emails'}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {stats.emailsProcessed > 0 
+                        ? 'AI is actively monitoring your inbox' 
+                        : 'Enable email scanning in connection settings'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Connection Status Overview */}
         <div className="mb-8 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
@@ -1728,6 +1940,171 @@ export default function Dashboard() {
                   {getButtonText('reminder')}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+
+        {/* Notification Settings */}
+        <div className="mt-8 bg-white rounded-lg shadow-sm border border-gray-200">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900">Notification Settings</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              Configure how you want to receive alerts and reminders for your events.
+            </p>
+          </div>
+          
+          <div className="p-6 space-y-6">
+            {/* Email Notifications */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900">Email Notifications</h3>
+                    <p className="text-sm text-gray-600">Receive email alerts for upcoming events</p>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={notificationSettings.emailAlerts}
+                    onChange={(e) => setNotificationSettings(prev => ({ ...prev, emailAlerts: e.target.checked }))}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+              
+              {notificationSettings.emailAlerts && (
+                <div className="ml-13 space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                    <div className="flex space-x-2">
+                      <input
+                        type="email"
+                        value={notificationSettings.emailAddress}
+                        onChange={(e) => setNotificationSettings(prev => ({ ...prev, emailAddress: e.target.value }))}
+                        placeholder="Enter your email address"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <button
+                        onClick={handleTestEmail}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                      >
+                        Test
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* WhatsApp Notifications */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                    <svg className="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900">WhatsApp Notifications</h3>
+                    <p className="text-sm text-gray-600">Receive WhatsApp messages for urgent events</p>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={notificationSettings.whatsappAlerts}
+                    onChange={(e) => setNotificationSettings(prev => ({ ...prev, whatsappAlerts: e.target.checked }))}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                </label>
+              </div>
+              
+              {notificationSettings.whatsappAlerts && (
+                <div className="ml-13 space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp Number</label>
+                    <div className="flex space-x-2">
+                      <input
+                        type="tel"
+                        value={notificationSettings.whatsappNumber}
+                        onChange={(e) => setNotificationSettings(prev => ({ ...prev, whatsappNumber: e.target.value }))}
+                        placeholder="+1234567890"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                      <button
+                        onClick={handleTestWhatsApp}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                      >
+                        Test
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Include country code (e.g., +1 for US)</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Reminder Settings */}
+            <div className="space-y-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                  <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900">Reminder Timing</h3>
+                  <p className="text-sm text-gray-600">How early should we remind you before events?</p>
+                </div>
+              </div>
+              
+              <div className="ml-13">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Remind me before</label>
+                <select
+                  value={notificationSettings.reminderTiming}
+                  onChange={(e) => setNotificationSettings(prev => ({ ...prev, reminderTiming: parseInt(e.target.value) }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value={5}>5 minutes</option>
+                  <option value={10}>10 minutes</option>
+                  <option value={15}>15 minutes</option>
+                  <option value={30}>30 minutes</option>
+                  <option value={60}>1 hour</option>
+                  <option value={120}>2 hours</option>
+                  <option value={1440}>1 day</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Save Button */}
+            <div className="pt-4 border-t border-gray-200">
+              <button
+                onClick={handleSaveNotificationSettings}
+                disabled={isSavingSettings}
+                className={`w-full px-4 py-2 rounded-lg font-medium transition-colors ${
+                  isSavingSettings
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
+              >
+                {isSavingSettings ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-gray-500 border-t-transparent rounded-full animate-spin inline-block mr-2"></div>
+                    Saving...
+                  </>
+                ) : (
+                  'Save Notification Settings'
+                )}
+              </button>
             </div>
           </div>
         </div>

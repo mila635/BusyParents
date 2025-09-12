@@ -136,8 +136,8 @@ export default function SignIn() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
 
-  // 🔗 Replace this with your actual Make.com webhook URL
-  const MAKE_WEBHOOK_URL = "https://hook.integromat.com/YOUR_WEBHOOK_ID"
+  // Use the configured Make.com webhook URL from environment
+  const MAKE_WEBHOOK_URL = process.env.MAKE_EMAIL_PROCESSING_WEBHOOK_URL || ""
 
   useEffect(() => {
     if (status === 'authenticated') {

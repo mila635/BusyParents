@@ -1,0 +1,229 @@
+{
+  "name": "Busy Parents Email Processing Workflow",
+  "flow": [
+    {
+      "id": 1,
+      "module": "gmail:watchEmails",
+      "version": 1,
+      "parameters": {
+        "folder": "INBOX",
+        "filterType": "simple",
+        "criteria": "unread",
+        "searchPhrase": "meeting OR appointment OR event OR schedule",
+        "markAsRead": false,
+        "maxResults": 5
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": 0,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": 2,
+      "module": "openai-gpt-3:createChatCompletion",
+      "version": 1,
+      "parameters": {
+        "model": "gpt-4",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Extract calendar event info from email. Return JSON: {isCalendarEvent: boolean, title: string, date: YYYY-MM-DD, time: HH:MM, location: string, description: string}"
+          },
+          {
+            "role": "user",
+            "content": "Email Subject: {{1.subject}}\nEmail Body: {{1.textPlain}}"
+          }
+        ],
+        "maxTokens": 300,
+        "temperature": 0.1
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": 3,
+      "module": "json:parseJSON",
+      "version": 1,
+      "parameters": {},
+      "mapper": {
+        "json": "{{2.choices[0].message.content}}"
+      },
+      "metadata": {
+        "designer": {
+          "x": 600,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": 4,
+      "module": "util:setVariable",
+      "version": 1,
+      "parameters": {},
+      "mapper": {
+        "name": "eventData",
+        "value": "{{3}}"
+      },
+      "metadata": {
+        "designer": {
+          "x": 900,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": 5,
+      "module": "util:router",
+      "version": 1,
+      "parameters": {},
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": 1200,
+          "y": 0
+        }
+      },
+      "routes": [
+        {
+          "condition": "{{3.isCalendarEvent}}",
+          "label": "Is Calendar Event"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "module": "google-calendar:createEvent",
+      "version": 1,
+      "parameters": {
+        "calendarId": "primary"
+      },
+      "mapper": {
+        "summary": "{{3.title}}",
+        "description": "{{3.description}}",
+        "location": "{{3.location}}",
+        "start": {
+          "dateTime": "{{3.date}}T{{3.time}}:00",
+          "timeZone": "America/New_York"
+        },
+        "end": {
+          "dateTime": "{{3.date}}T{{addHours(parseDate(3.time, 'HH:mm'), 1)}}",
+          "timeZone": "America/New_York"
+        }
+      },
+      "metadata": {
+        "designer": {
+          "x": 1500,
+          "y": -200
+        }
+      }
+    },
+    {
+      "id": 7,
+      "module": "google-sheets:addRow",
+      "version": 1,
+      "parameters": {
+        "spreadsheetId": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms",
+        "sheetName": "Sheet1"
+      },
+      "mapper": {
+        "values": {
+          "A": "{{formatDate(now, 'YYYY-MM-DD HH:mm:ss')}}",
+          "B": "{{1.subject}}",
+          "C": "{{3.title}}",
+          "D": "{{3.date}}",
+          "E": "{{3.time}}",
+          "F": "{{if(6.id, 'Created', 'Failed')}}"
+        }
+      },
+      "metadata": {
+        "designer": {
+          "x": 1800,
+          "y": -200
+        }
+      }
+    },
+    {
+      "id": 8,
+      "module": "http:makeARequest",
+      "version": 3,
+      "parameters": {
+        "url": "http://localhost:3000/api/webhook/make-update",
+        "method": "POST",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ]
+      },
+      "mapper": {
+        "body": {
+          "timestamp": "{{formatDate(now, 'YYYY-MM-DD HH:mm:ss')}}",
+          "emailId": "{{1.messageId}}",
+          "emailSubject": "{{1.subject}}",
+          "workflowStatus": "completed"
+        }
+      },
+      "metadata": {
+        "designer": {
+          "x": 2100,
+          "y": -200
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": false,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false,
+      "freshVariables": false
+    },
+    "designer": {
+      "orphans": []
+    },
+    "zone": "us1.make.com"
+  },
+  "connections": [
+    {
+      "id": 1,
+      "module": 1,
+      "connection": "google-gmail"
+    },
+    {
+      "id": 2,
+      "module": 2,
+      "connection": "openai"
+    },
+    {
+      "id": 3,
+      "module": 6,
+      "connection": "google-calendar"
+    },
+    {
+      "id": 4,
+      "module": 7,
+      "connection": "google-sheets"
+    }
+  ],
+  "scheduling": {
+    "type": "interval",
+    "interval": 5,
+    "unit": "minutes"
+  }
+}

@@ -1,0 +1,295 @@
+{
+  "name": "Busy Parents Email Processing Workflow - Updated",
+  "flow": [
+    {
+      "id": 1,
+      "module": "webhook:webhook",
+      "version": 1,
+      "parameters": {
+        "hook": 1,
+        "maxResults": 1
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": 0,
+          "y": 0
+        },
+        "restore": {
+          "parameters": {
+            "hook": {
+              "data": {
+                "editable": "true"
+              },
+              "label": "Busy Parents Trigger"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "module": "gmail:WatchEmails",
+      "version": 1,
+      "parameters": {
+        "account": 1,
+        "maxResults": 10,
+        "query": "is:unread"
+      },
+      "mapper": {
+        "query": "is:unread"
+      },
+      "metadata": {
+        "designer": {
+          "x": 300,
+          "y": 0
+        },
+        "restore": {
+          "parameters": {
+            "account": {
+              "label": "Gmail Account"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "module": "builtin:BasicRouter",
+      "version": 1,
+      "mapper": null,
+      "metadata": {
+        "designer": {
+          "x": 600,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": 4,
+      "module": "openai-gpt-3:CreateChatCompletion",
+      "version": 1,
+      "parameters": {
+        "account": 1,
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.7,
+        "max_tokens": 500
+      },
+      "mapper": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are an AI assistant for busy parents. Analyze this email and extract: 1) Priority level (High/Medium/Low), 2) Category (School/Medical/Social/Work/Other), 3) Action required (Yes/No), 4) Deadline if any, 5) Brief summary. Format as JSON."
+          },
+          {
+            "role": "user",
+            "content": "Subject: {{2.subject}}\n\nBody: {{2.textPlain}}"
+          }
+        ]
+      },
+      "metadata": {
+        "designer": {
+          "x": 900,
+          "y": -150
+        },
+        "restore": {
+          "parameters": {
+            "account": {
+              "label": "OpenAI Account"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "module": "google-calendar:CreateAnEvent",
+      "version": 1,
+      "parameters": {
+        "account": 1,
+        "calendarId": "primary"
+      },
+      "mapper": {
+        "summary": "{{2.subject}}",
+        "description": "Email from: {{2.from.name}} ({{2.from.email}})\n\nAI Analysis: {{4.choices[].message.content}}",
+        "start": {
+          "dateTime": "{{addDays(now; 1)}}T09:00:00",
+          "timeZone": "America/New_York"
+        },
+        "end": {
+          "dateTime": "{{addDays(now; 1)}}T10:00:00",
+          "timeZone": "America/New_York"
+        }
+      },
+      "filter": {
+        "name": "High Priority Filter",
+        "conditions": [
+          [
+            {
+              "a": "{{4.choices[].message.content}}",
+              "o": "text:contains",
+              "b": "High"
+            }
+          ]
+        ]
+      },
+      "metadata": {
+        "designer": {
+          "x": 1200,
+          "y": -300
+        },
+        "restore": {
+          "parameters": {
+            "account": {
+              "label": "Google Calendar Account"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "module": "google-sheets:AddRow",
+      "version": 2,
+      "parameters": {
+        "account": 1,
+        "mode": "select",
+        "insertDataOption": "INSERT_ROWS",
+        "valueInputOption": "USER_ENTERED"
+      },
+      "mapper": {
+        "spreadsheetId": "1OpM8Yp-Bz3c4tLm-Ajt1jEkipM71VTGeqPunr01V4P8",
+        "sheetId": "0",
+        "values": [
+          [
+            "{{formatDate(now; \"YYYY-MM-DD HH:mm:ss\")}}",
+            "{{2.from.email}}",
+            "{{2.subject}}",
+            "{{4.choices[].message.content}}",
+            "{{2.id}}"
+          ]
+        ]
+      },
+      "metadata": {
+        "designer": {
+          "x": 1200,
+          "y": 0
+        },
+        "restore": {
+          "parameters": {
+            "account": {
+              "label": "Google Sheets Account"
+            },
+            "mode": {
+              "label": "Select a spreadsheet"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": {
+        "handleErrors": false,
+        "useNewZLibDeCompress": true
+      },
+      "mapper": {
+        "url": "http://localhost:3000/api/webhook/make-status",
+        "method": "POST",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "qs": [],
+        "bodyType": "raw",
+        "parseResponse": true,
+        "authUser": "",
+        "authPass": "",
+        "timeout": "",
+        "shareCookies": false,
+        "ca": "",
+        "rejectUnauthorized": true,
+        "followRedirect": true,
+        "useQuerystring": false,
+        "gzip": true,
+        "useMtls": false,
+        "contentType": "application/json",
+        "data": "{\n  \"status\": \"completed\",\n  \"emailsProcessed\": {{length(2.array[])}},\n  \"timestamp\": \"{{formatDate(now; \"YYYY-MM-DD HH:mm:ss\")}}\",\n  \"lastEmailId\": \"{{last(2.array[]).id}}\"\n}"
+      },
+      "metadata": {
+        "designer": {
+          "x": 1500,
+          "y": 0
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": false,
+      "slots": null,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false,
+      "freshVariables": false
+    },
+    "designer": {
+      "orphans": []
+    },
+    "zone": "us2.make.com"
+  },
+  "routes": [
+    {
+      "flow": [
+        {
+          "id": 2,
+          "src": 1
+        },
+        {
+          "id": 3,
+          "src": 2
+        },
+        {
+          "id": 4,
+          "src": 3
+        },
+        {
+          "id": 5,
+          "src": 4
+        },
+        {
+          "id": 6,
+          "src": 4
+        },
+        {
+          "id": 7,
+          "src": 6
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": 1,
+      "name": "webhook",
+      "label": "Busy Parents Trigger",
+      "url": "https://hook.us2.make.com/jeh7g4itqovoivtlr5y2dg6gsf4fqx7x"
+    }
+  ],
+  "metadata": {
+    "version": "2.0.0",
+    "description": "Updated workflow for Busy Parents app - uses correct module names: Watch Emails, Create Chat Completion, Create An Event, Add Row",
+    "author": "Busy Parents AI Assistant",
+    "tags": ["email", "ai", "calendar", "sheets", "automation"]
+  }
+}

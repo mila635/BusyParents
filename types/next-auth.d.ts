@@ -13,6 +13,10 @@ declare module "next-auth" {
     refreshToken?: string
     scope?: string
     expiresAt?: number
+    userId?: string
+    role?: string
+    isActive?: boolean
+    error?: string
   }
 }
 
@@ -23,6 +27,10 @@ declare module "next-auth/jwt" {
     refreshToken?: string
     scope?: string
     expiresAt?: number
+    userId?: string
+    role?: string
+    isActive?: boolean
+    error?: string
   }
 }
 

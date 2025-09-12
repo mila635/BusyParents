@@ -48,21 +48,33 @@ export async function updateUserTokens(userId: string, tokens: {
   expiresAt: number
   scope: string
 }) {
-  return await prisma.userToken.upsert({
-    where: { userId },
-    update: {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      expiresAt: new Date(tokens.expiresAt * 1000),
-      scope: tokens.scope,
-      updatedAt: new Date(),
-    },
-    create: {
-      userId,
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      expiresAt: new Date(tokens.expiresAt * 1000),
-      scope: tokens.scope,
-    },
-  })
+  // First, try to find existing token
+  const existingToken = await prisma.userToken.findFirst({
+    where: { userId }
+  });
+
+  if (existingToken) {
+    // Update existing token
+    return await prisma.userToken.update({
+      where: { id: existingToken.id },
+      data: {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt: new Date(tokens.expiresAt * 1000),
+        scope: tokens.scope,
+        updatedAt: new Date(),
+      },
+    });
+  } else {
+    // Create new token
+    return await prisma.userToken.create({
+      data: {
+        userId,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt: new Date(tokens.expiresAt * 1000),
+        scope: tokens.scope,
+      },
+    });
+  }
 }

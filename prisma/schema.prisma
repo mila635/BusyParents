@@ -3,17 +3,15 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider = "sqlite"
+  url      = "file:./dev.db"
 }
 
 
 
-enum PendingStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
+// SQLite doesn't support enums, using String with default values instead
+// enum PendingStatus { PENDING, APPROVED, REJECTED }
+// enum UserRole { PARENT, ADMIN }
 
 model User {
   id            String          @id @default(cuid())
@@ -21,6 +19,8 @@ model User {
   name          String?
   image         String?
   provider      String          @default("google")
+  role          String          @default("PARENT")
+  isActive      Boolean         @default(true)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
   lastLoginAt   DateTime?
@@ -31,6 +31,7 @@ model User {
   logs          UserLog[]
   events        CalendarEvent[]
   pendingEvents PendingEvent[]
+  notificationPreferences NotificationPreferences?
 
   @@map("users")
 }
@@ -64,6 +65,24 @@ model UserSettings {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_settings")
+}
+
+model NotificationPreferences {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  emailNotifications    Boolean  @default(true)
+  whatsappNotifications Boolean  @default(false)
+  eventReminders        Boolean  @default(true)
+  weeklyDigest          Boolean  @default(true)
+  instantAlerts         Boolean  @default(false)
+  whatsappNumber        String?
+  reminderDuration      Int      @default(15) // minutes before event
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
 }
 
 model UserLog {
@@ -106,9 +125,12 @@ model PendingEvent {
   userId          String
   title           String
   date            DateTime
-  description     String?        @db.Text
-  status          PendingStatus  @default(PENDING)
+  description     String?
+  status          String         @default("PENDING")
   confidenceScore Float?
+  source          String         @default("email")
+  extractedFrom   String?        // Email subject or ID
+  location        String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -116,4 +138,80 @@ model PendingEvent {
 
   @@map("pending_events")
   @@index([userId])
+}
+
+// Make.com integration models
+model WebhookEvent {
+  id           String   @id @default(cuid())
+  executionId  String?
+  scenarioName String?
+  status       String
+  userEmail    String?
+  data         String?
+  error        String?
+  timestamp    DateTime @default(now())
+
+  @@map("webhook_events")
+  @@index([executionId])
+  @@index([userEmail])
+}
+
+model ExecutionResult {
+  id           String   @id @default(cuid())
+  executionId  String   @unique
+  scenarioName String?
+  userEmail    String?
+  result       String
+  timestamp    DateTime @default(now())
+
+  @@map("execution_results")
+  @@index([userEmail])
+}
+
+model ExecutionError {
+  id           String   @id @default(cuid())
+  executionId  String   @unique
+  scenarioName String?
+  userEmail    String?
+  error        String
+  timestamp    DateTime @default(now())
+
+  @@map("execution_errors")
+  @@index([userEmail])
+}
+
+model WorkflowTrigger {
+  id            String    @id @default(cuid())
+  action        String
+  scenarioName  String?
+  userEmail     String
+  userId        String?
+  status        String    @default("initiated") // initiated, triggered, in_progress, success, error
+  executionId   String?
+  additionalData String?  // Store additional data related to the workflow (JSON as string)
+  timestamp     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  completedAt   DateTime?
+  errorAt       DateTime?
+
+  @@map("workflow_triggers")
+  @@index([userEmail])
+  @@index([action])
+  @@index([executionId])
+  @@index([userEmail, action])
+  @@index([timestamp(sort: Desc)])
+}
+
+model WorkflowError {
+  id           String   @id @default(cuid())
+  action       String
+  scenarioName String?
+  userEmail    String
+  error        String
+  timestamp    DateTime @default(now())
+
+  @@map("workflow_errors")
+  @@index([userEmail])
+  @@index([action])
+  @@index([timestamp(sort: Desc)])
 }

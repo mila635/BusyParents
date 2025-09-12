@@ -37,7 +37,13 @@ export default function Navbar() {
               href="/profile" 
               className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium transition-colors"
             >
-              Profile
+              Workflow Status
+            </Link>
+            <Link 
+              href="/workflow-status" 
+              className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium transition-colors"
+            >
+              Workflow Status
             </Link>
             
             {/* User Menu */}
@@ -100,6 +106,13 @@ export default function Navbar() {
               onClick={() => setIsMenuOpen(false)}
             >
               Profile
+            </Link>
+            <Link 
+              href="/workflow-status" 
+              className="text-gray-700 hover:text-gray-900 block px-3 py-2 rounded-md text-base font-medium"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              Workflow Status
             </Link>
             <div className="border-t border-gray-200 pt-4 mt-4">
               <div className="flex items-center space-x-3 px-3 py-2">
