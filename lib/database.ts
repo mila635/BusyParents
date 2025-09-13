@@ -78,3 +78,64 @@ export async function updateUserTokens(userId: string, tokens: {
     });
   }
 }
+
+// N8N User Data functions
+export async function upsertN8NUserData(data: {
+  userId: string;
+  name?: string;
+  email: string;
+  accessToken?: string;
+  gmailRefreshToken?: string;
+  calendarId?: string;
+  phoneNumber?: string;
+}) {
+  // First try to find existing record by userId and email
+  const existingRecord = await prisma.n8NUserData.findFirst({
+    where: {
+      userId: data.userId,
+      email: data.email,
+    },
+  });
+
+  if (existingRecord) {
+    // Update existing record
+    return await prisma.n8NUserData.update({
+      where: { id: existingRecord.id },
+      data: {
+        name: data.name,
+        accessToken: data.accessToken,
+        gmailRefreshToken: data.gmailRefreshToken,
+        calendarId: data.calendarId,
+        phoneNumber: data.phoneNumber,
+        lastSyncedAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+  } else {
+    // Create new record
+    return await prisma.n8NUserData.create({
+      data: {
+        userId: data.userId,
+        name: data.name,
+        email: data.email,
+        accessToken: data.accessToken,
+        gmailRefreshToken: data.gmailRefreshToken,
+        calendarId: data.calendarId,
+        phoneNumber: data.phoneNumber,
+        lastSyncedAt: new Date(),
+      },
+    });
+  }
+}
+
+export async function getN8NUserData(email: string) {
+  return await prisma.n8NUserData.findFirst({
+    where: { email },
+  });
+}
+
+export async function getAllN8NUserData() {
+  return await prisma.n8NUserData.findMany({
+    orderBy: { lastSyncedAt: 'desc' },
+  });
+}

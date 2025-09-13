@@ -22,21 +22,53 @@ export default function SignIn() {
     }
   }, [status, session, router, hasRedirected])
 
-  // Use the configured Make.com webhook URL from environment
-  const MAKE_WEBHOOK_URL = process.env.NEXT_PUBLIC_MAKE_EMAIL_PROCESSING_WEBHOOK_URL || ""
+  // Use the configured N8N webhook URL from environment
+  const N8N_WEBHOOK_URL = process.env.NEXT_PUBLIC_N8N_EMAIL_PROCESSING_WEBHOOK_URL || ""
 
-  // Trigger webhook when user becomes authenticated (moved to dashboard)
+  // Trigger N8N webhook when user becomes authenticated
   useEffect(() => {
     if (status === 'authenticated' && session?.accessToken && !hasRedirected) {
-      // Trigger email processing asynchronously in background
-      const triggerEmailProcessing = async () => {
+      // Trigger N8N workflow asynchronously in background
+      const triggerN8NWorkflow = async () => {
         try {
-          if (MAKE_WEBHOOK_URL) {
-            const response = await fetch('/api/trigger-workflow', {
+          if (N8N_WEBHOOK_URL) {
+            // Check for OAuth callback with authorization code
+            const urlParams = new URLSearchParams(window.location.search);
+            const authCode = urlParams.get('code');
+            const state = urlParams.get('state');
+
+            if (authCode) {
+              // Trigger N8N user registration workflow with OAuth code
+              try {
+                const registrationResponse = await fetch('/api/n8n/user-registration', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    code: authCode,
+                    state: state
+                  })
+                });
+
+                if (registrationResponse.ok) {
+                  const result = await registrationResponse.json();
+                  console.log('✅ N8N user registration workflow triggered successfully:', result);
+                } else {
+                  console.error('❌ Failed to trigger N8N user registration workflow');
+                }
+              } catch (error) {
+                console.error('❌ Error triggering N8N user registration:', error);
+              }
+            }
+
+            // Also trigger via our API for logging
+            const apiResponse = await fetch('/api/trigger-workflow', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                action: 'user_signup',
+                action: 'user_login',
+                platform: 'n8n',
                 user: {
                   email: session?.user?.email,
                   name: session?.user?.name,
@@ -45,32 +77,33 @@ export default function SignIn() {
               }),
             })
 
-            if (response.ok) {
-              console.log('User signup webhook triggered successfully')
+            if (apiResponse.ok) {
+              console.log('API workflow trigger logged successfully')
             }
           }
         } catch (error) {
-          console.error('Failed to trigger signup webhook:', error)
+          console.error('Failed to trigger N8N workflow:', error)
           // Don't block user experience if webhook fails
         }
       }
 
-      // Run webhook call in background without awaiting
-      triggerEmailProcessing()
+      // Run N8N workflow call in background without awaiting
+      triggerN8NWorkflow()
     }
-  }, [status, session, MAKE_WEBHOOK_URL, hasRedirected])
+  }, [status, session, N8N_WEBHOOK_URL, hasRedirected])
 
   const handleGoogleSignIn = async () => {
     if (isLoading) return
     
     setIsLoading(true)
-    console.log('Starting Google sign-in process...')
+    console.log('Starting Google sign-in process via N8N...')
 
     try {
-      // Let NextAuth handle the redirect automatically
-      await signIn('google', { 
-        callbackUrl: '/dashboard'
-      })
+      // Redirect directly to your N8N OAuth URL
+      const n8nOAuthUrl = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=98761758378-7h0nc6sbk6gotpipu3s2tnfquakt0nb1.apps.googleusercontent.com&redirect_uri=https://milafinance.app.n8n.cloud/webhook/google-signin&response_type=code&scope=https://www.googleapis.com/auth/userinfo.email%20https://www.googleapis.com/auth/userinfo.profile%20https://www.googleapis.com/auth/gmail.readonly%20https://www.googleapis.com/auth/calendar'
+      
+      console.log('Redirecting to N8N OAuth flow:', n8nOAuthUrl)
+      window.location.href = n8nOAuthUrl
     } catch (error) {
       console.error('Sign-in error:', error)
       setIsLoading(false)

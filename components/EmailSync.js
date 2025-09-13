@@ -12,9 +12,9 @@ export default function EmailSync() {
   const [lastSyncTime, setLastSyncTime] = useState(null)
 
   const triggerWorkflow = async () => {
-    if (!session) {
-      setError('Please sign in first')
-      return
+    if (!session?.user?.email) {
+      setError('Please sign in to sync emails');
+      return;
     }
 
     setIsLoading(true)
@@ -22,21 +22,16 @@ export default function EmailSync() {
     setError('')
 
     try {
-      const response = await fetch('/api/trigger-workflow', {
+      const response = await fetch('/api/n8n/email-processing', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          // Add any additional data you want to send
-          timestamp: new Date().toISOString(),
-          action: 'sync_emails',
-          scenarioName: 'Email Processing Workflow',
-          additionalData: {
-            syncRequestedAt: new Date().toISOString(),
-            userEmail: session?.user?.email,
-            syncSource: 'manual'
-          }
+          triggerType: 'manual',
+          userEmail: session.user.email,
+          dateRange: '1d', // Process emails from last 1 day
+          processSchoolEmailsOnly: true // Only process school-related emails
         })
       })
 
@@ -51,13 +46,13 @@ export default function EmailSync() {
         throw new Error(data.error || `HTTP error! status: ${response.status}`)
       }
 
-      setMessage('Workflow triggered successfully!')
+      setMessage('N8N email processing workflow triggered successfully! The system will fetch your Gmail messages, extract school events using AI, and create calendar events automatically.')
       setLastSyncTime(new Date().toISOString())
-      console.log('Workflow response:', data)
+      console.log('N8N email processing workflow triggered:', data)
 
     } catch (error) {
-      console.error('Error triggering workflow:', error)
-      setError(`Failed to trigger workflow: ${error.message}`)
+      console.error('Error triggering N8N email processing workflow:', error)
+      setError(`Failed to trigger N8N email processing workflow: ${error.message}`)
     } finally {
       setIsLoading(false)
     }

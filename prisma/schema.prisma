@@ -188,6 +188,9 @@ model WorkflowTrigger {
   userId        String?
   status        String    @default("initiated") // initiated, triggered, in_progress, success, error
   executionId   String?
+  platform      String    @default("web") // web, mobile, api
+  workflowType  String    @default("n8n") // n8n, make, manual
+  n8nWorkflowId String?   // N8N specific workflow ID
   additionalData String?  // Store additional data related to the workflow (JSON as string)
   timestamp     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -199,6 +202,7 @@ model WorkflowTrigger {
   @@index([action])
   @@index([executionId])
   @@index([userEmail, action])
+  @@index([workflowType])
   @@index([timestamp(sort: Desc)])
 }
 
@@ -214,4 +218,24 @@ model WorkflowError {
   @@index([userEmail])
   @@index([action])
   @@index([timestamp(sort: Desc)])
+}
+
+// N8N Google Sheets integration model
+model N8NUserData {
+  id                  String   @id @default(cuid())
+  userId              String
+  name                String?
+  email               String
+  accessToken         String?
+  gmailRefreshToken   String?
+  calendarId          String?
+  phoneNumber         String?
+  lastSyncedAt        DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("n8n_user_data")
+  @@index([userId])
+  @@index([email])
+  @@index([lastSyncedAt(sort: Desc)])
 }

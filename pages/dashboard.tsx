@@ -307,31 +307,69 @@ export default function Dashboard() {
     return `${date.toLocaleDateString()} at ${date.toLocaleTimeString()}`
   }
 
-  const handleTriggerWorkflow = async () => {
-    setIsTriggeringWorkflow(true)
+  // Use local API endpoint for N8N workflow triggers
+  const N8N_API_ENDPOINT = '/api/n8n/trigger-workflows'
+
+  // Trigger N8N workflows on dashboard access
+  useEffect(() => {
+    if (session?.accessToken && hasCheckedStatus) {
+      triggerN8NWorkflowsOnLogin()
+    }
+  }, [session, hasCheckedStatus])
+
+  const triggerN8NWorkflowsOnLogin = async () => {
     try {
-      const response = await fetch('/api/trigger-workflow', {
+      const response = await fetch(N8N_API_ENDPOINT, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          action: 'process_emails',
-          additionalData: {
-            source: 'manual_scan',
-            timestamp: new Date().toISOString()
-          }
-        })
+          action: 'dashboard_access',
+          workflowType: 'both'
+        }),
       })
-      const result = await response.json()
+
       if (response.ok) {
-        setErrorMessage(`✅ Workflow triggered! Check your inbox for new events to appear here shortly.`)
+        const result = await response.json()
+        console.log('N8N workflows triggered successfully:', result.message)
+        logUserAction('N8N Workflows', 'Dashboard Access', 'success', result.message)
+      } else {
+        const error = await response.json()
+        console.warn('N8N workflow trigger failed:', error.message)
+        logUserAction('N8N Workflows', 'Dashboard Access', 'failed', error.message)
+      }
+    } catch (error) {
+      console.warn('N8N workflows not available - this is normal in development mode')
+      logUserAction('N8N Workflows', 'Dashboard Access', 'skipped', 'N8N not configured')
+    }
+  }
+
+  const handleTriggerWorkflow = async () => {
+    setIsTriggeringWorkflow(true)
+    try {
+      // Trigger N8N workflows via local API endpoint
+      const response = await fetch(N8N_API_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'manual_email_scan',
+          workflowType: 'both'
+        }),
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        setErrorMessage(`✅ N8N Workflows triggered! (${result.summary.successful}/${result.summary.total} successful) Check your inbox for new events.`)
         fetchPendingEvents()
         fetchStats()
-        logUserAction('Trigger Workflow', 'N8N Integration', 'success', 'Manual workflow trigger successful')
+        logUserAction('Trigger Workflow', 'N8N Integration', 'success', result.message)
       } else {
-        setErrorMessage(`❌ Failed to trigger workflow. Error: ${result.error}`)
-        logUserAction('Trigger Workflow', 'N8N Integration', 'failed', result.error)
+        const error = await response.json()
+        setErrorMessage(`❌ Failed to trigger workflows: ${error.message}`)
+        logUserAction('Trigger Workflow', 'N8N Integration', 'failed', 'All workflow triggers failed')
       }
     } catch (error) {
       setErrorMessage('❌ Failed to trigger workflow. Network error.')

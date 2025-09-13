@@ -72,6 +72,7 @@ export default withAuth(
             req.nextUrl.pathname === '/api/health' ||
             req.nextUrl.pathname === '/api/test-env' ||
             req.nextUrl.pathname === '/api/test-google-sheets' ||
+            req.nextUrl.pathname === '/api/test-n8n-integration' ||
             req.nextUrl.pathname.startsWith('/api/stats') ||
             req.nextUrl.pathname === '/api/log-action') {
           return true

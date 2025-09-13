@@ -20,14 +20,32 @@ export default async function handler(
       return res.status(401).json({ error: 'Unauthorized' })
     }
 
-    const { action, additionalData } = req.body
+    const { action, platform = 'n8n', additionalData } = req.body
 
     if (!action) {
       return res.status(400).json({ error: 'Action is required' })
     }
 
-    // Get the appropriate webhook URL and scenario name based on the action
-    const { webhookUrl, scenarioName } = getWebhookInfo(action)
+    // Get N8N webhook info based on action
+    let webhookUrl: string | undefined;
+    let scenarioName: string;
+
+    switch (action) {
+      case 'email-sync':
+        webhookUrl = process.env.N8N_EMAIL_PROCESSING_WEBHOOK;
+        scenarioName = 'N8N Email Processing Workflow';
+        break;
+      case 'calendar-sync':
+        webhookUrl = process.env.N8N_CALENDAR_SYNC_WEBHOOK;
+        scenarioName = 'N8N Calendar Sync Workflow';
+        break;
+      case 'user-signin':
+        webhookUrl = process.env.N8N_WEBHOOK_URL;
+        scenarioName = 'N8N User Signin Workflow';
+        break;
+      default:
+        return res.status(400).json({ error: 'Invalid action' });
+    }
 
     if (!webhookUrl) {
       return res.status(400).json({ error: 'Invalid action or webhook not configured' })
@@ -38,36 +56,39 @@ export default async function handler(
       action,
       userEmail: session.user?.email,
       scenarioName,
+      platform: platform || 'web',
+      workflowType: 'n8n',
       additionalData
     })
 
-    // Construct the payload to send to Make.com
+    // Prepare N8N webhook payload with user data for Google Sheets
+    const userId = (session.user as any)?.id || session.userId || '';
     const payload = {
       action,
-      user: {
-        email: session.user?.email,
-        name: session.user?.name,
-      },
-      // Include the access token for Gmail API access
-      accessToken: session.accessToken,
+      platform: platform || 'web',
+      user_id: userId,
+      name: session.user?.name,
+      email: session.user?.email,
+      access_token: session.accessToken || '',
+      refresh_token: session.refreshToken || '',
       timestamp: new Date().toISOString(),
-      // Include any additional data passed from the client
-      ...additionalData && { additionalData }
+      additionalData: additionalData || {}
     }
 
-    // Send the request to Make.com
+    // Send the request to the webhook (Make.com or N8N)
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-API-Source': 'BusyParents-App',
+        'X-Platform': platform,
       },
       body: JSON.stringify(payload),
     })
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('Make.com webhook error:', errorText)
+      console.error(`${platform.toUpperCase()} webhook error:`, errorText)
       
       // Log the error
       await logWorkflowError({
@@ -108,46 +129,84 @@ export default async function handler(
 }
 
 // Helper function to get the appropriate webhook URL and scenario name
-function getWebhookInfo(action: string): { webhookUrl: string | null, scenarioName: string } {
-  switch (action) {
-    case 'sync_emails':
-      return {
-        webhookUrl: process.env.MAKE_SYNC_WEBHOOK_URL || null,
-        scenarioName: 'Email Sync'
-      }
-    case 'process_gmail':
-      return {
-        webhookUrl: process.env.MAKE_GMAIL_WEBHOOK_URL || null,
-        scenarioName: 'Gmail Processing'
-      }
-    case 'create_calendar_event':
-      return {
-        webhookUrl: process.env.MAKE_CALENDAR_WEBHOOK_URL || null,
-        scenarioName: 'Calendar Event Creation'
-      }
-    case 'set_reminder':
-      return {
-        webhookUrl: process.env.MAKE_REMINDER_WEBHOOK_URL || null,
-        scenarioName: 'Reminder Setting'
-      }
-    case 'process_emails':
-      return {
-        webhookUrl: process.env.MAKE_EMAIL_PROCESSING_WEBHOOK_URL || null,
-        scenarioName: 'Email Processing'
-      }
-    default:
-      return {
-        webhookUrl: process.env.MAKE_EMAIL_PROCESSING_WEBHOOK_URL || process.env.MAKE_WEBHOOK_URL || null,
-        scenarioName: 'Email Processing'
-      }
+function getWebhookInfo(action: string, platform: string = 'make'): { webhookUrl: string | null, scenarioName: string } {
+  if (platform === 'n8n') {
+    // N8N webhook URLs
+    switch (action) {
+      case 'sync_emails':
+      case 'process_gmail':
+      case 'process_emails':
+      case 'manual_email_scan':
+        return {
+          webhookUrl: process.env.N8N_EMAIL_PROCESSING_WEBHOOK || null,
+          scenarioName: 'N8N Email Processing'
+        }
+      case 'create_calendar_event':
+        return {
+          webhookUrl: process.env.N8N_CALENDAR_WEBHOOK || null,
+          scenarioName: 'N8N Calendar Event Creation'
+        }
+      case 'set_reminder':
+        return {
+          webhookUrl: process.env.N8N_REMINDER_WEBHOOK || null,
+          scenarioName: 'N8N Reminder Setting'
+        }
+      case 'user_login':
+      case 'dashboard_access':
+        return {
+          webhookUrl: process.env.N8N_USER_LOGIN_WEBHOOK || null,
+          scenarioName: 'N8N User Login'
+        }
+      default:
+        return {
+          webhookUrl: process.env.N8N_EMAIL_PROCESSING_WEBHOOK || null,
+          scenarioName: 'N8N Email Processing'
+        }
+    }
+  } else {
+    // Make.com webhook URLs (legacy support)
+    switch (action) {
+      case 'sync_emails':
+        return {
+          webhookUrl: process.env.MAKE_SYNC_WEBHOOK_URL || null,
+          scenarioName: 'Email Sync'
+        }
+      case 'process_gmail':
+        return {
+          webhookUrl: process.env.MAKE_GMAIL_WEBHOOK_URL || null,
+          scenarioName: 'Gmail Processing'
+        }
+      case 'create_calendar_event':
+        return {
+          webhookUrl: process.env.MAKE_CALENDAR_WEBHOOK_URL || null,
+          scenarioName: 'Calendar Event Creation'
+        }
+      case 'set_reminder':
+        return {
+          webhookUrl: process.env.MAKE_REMINDER_WEBHOOK_URL || null,
+          scenarioName: 'Reminder Setting'
+        }
+      case 'process_emails':
+        return {
+          webhookUrl: process.env.MAKE_EMAIL_PROCESSING_WEBHOOK_URL || null,
+          scenarioName: 'Email Processing'
+        }
+      default:
+        return {
+          webhookUrl: process.env.MAKE_EMAIL_PROCESSING_WEBHOOK_URL || process.env.MAKE_WEBHOOK_URL || null,
+          scenarioName: 'Email Processing'
+        }
+    }
   }
 }
 
 // Database logging functions
-async function logWorkflowTrigger({ action, userEmail, scenarioName, additionalData = null }: {
+async function logWorkflowTrigger({ action, userEmail, scenarioName, platform, workflowType, additionalData = null }: {
   action: string;
   userEmail: string | null | undefined;
   scenarioName: string;
+  platform?: string;
+  workflowType?: string;
   additionalData?: any;
 }) {
   try {
@@ -157,6 +216,8 @@ async function logWorkflowTrigger({ action, userEmail, scenarioName, additionalD
         userEmail: userEmail || 'unknown',
         scenarioName,
         status: 'initiated',
+        platform: platform || 'web',
+        workflowType: workflowType || 'n8n',
         additionalData: additionalData ? JSON.stringify(additionalData) : null,
         timestamp: new Date()
       }

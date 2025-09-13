@@ -12,8 +12,8 @@ export default function CalendarSync() {
   const [lastSyncTime, setLastSyncTime] = useState(null)
 
   const triggerWorkflow = async () => {
-    if (!session) {
-      setError('Please sign in first')
+    if (!session?.user?.email) {
+      setError('Please sign in to sync calendar')
       return
     }
 
@@ -22,20 +22,17 @@ export default function CalendarSync() {
     setError('')
 
     try {
-      const response = await fetch('/api/trigger-workflow', {
+      // Trigger the email processing workflow which includes calendar event creation
+      const response = await fetch('/api/n8n/email-processing', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          timestamp: new Date().toISOString(),
-          action: 'sync_calendar',
-          scenarioName: 'Calendar Processing Workflow',
-          additionalData: {
-            syncRequestedAt: new Date().toISOString(),
-            userEmail: session?.user?.email,
-            syncSource: 'manual'
-          }
+          triggerType: 'calendar-sync',
+          userEmail: session.user.email,
+          dateRange: '7d', // Process emails from last 7 days for calendar sync
+          processSchoolEmailsOnly: true // Focus on school-related events
         })
       })
 
@@ -49,12 +46,12 @@ export default function CalendarSync() {
         throw new Error(data.error || `HTTP error! status: ${response.status}`)
       }
 
-      setMessage('Calendar sync triggered successfully!')
+      setMessage('N8N calendar sync workflow triggered successfully! The system will process your emails, extract events using AI, and automatically create Google Calendar events.')
       setLastSyncTime(new Date().toISOString())
-      console.log('Workflow response:', data)
+      console.log('N8N calendar sync workflow triggered:', data)
 
     } catch (error) {
-      console.error('Error triggering workflow:', error)
+      console.error('Error triggering N8N calendar sync workflow:', error)
       setError(`Failed to trigger calendar sync: ${error.message}`)
     } finally {
       setIsLoading(false)
