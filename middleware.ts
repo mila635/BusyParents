@@ -24,8 +24,8 @@ export default withAuth(
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
   response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
 
-  // CORS headers for API routes
-  if (request.nextUrl.pathname.startsWith('/api/')) {
+  // CORS headers for API routes (excluding NextAuth)
+  if (request.nextUrl.pathname.startsWith('/api/') && !request.nextUrl.pathname.startsWith('/api/auth/')) {
     const origin = request.headers.get('origin')
     const allowedOrigins = [
       process.env.NEXTAUTH_URL,

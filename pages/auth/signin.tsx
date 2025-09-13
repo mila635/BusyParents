@@ -96,14 +96,19 @@ export default function SignIn() {
     if (isLoading) return
     
     setIsLoading(true)
-    console.log('Starting Google sign-in process via N8N...')
+    console.log('Starting Google sign-in process...')
 
     try {
-      // Redirect directly to your N8N OAuth URL
-      const n8nOAuthUrl = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=98761758378-7h0nc6sbk6gotpipu3s2tnfquakt0nb1.apps.googleusercontent.com&redirect_uri=https://milafinance.app.n8n.cloud/webhook/google-signin&response_type=code&scope=https://www.googleapis.com/auth/userinfo.email%20https://www.googleapis.com/auth/userinfo.profile%20https://www.googleapis.com/auth/gmail.readonly%20https://www.googleapis.com/auth/calendar'
+      // Use NextAuth's built-in Google provider which will redirect to dashboard
+      const result = await signIn('google', { 
+        callbackUrl: '/dashboard',
+        redirect: true 
+      })
       
-      console.log('Redirecting to N8N OAuth flow:', n8nOAuthUrl)
-      window.location.href = n8nOAuthUrl
+      if (result?.error) {
+        console.error('Sign-in error:', result.error)
+        setIsLoading(false)
+      }
     } catch (error) {
       console.error('Sign-in error:', error)
       setIsLoading(false)
