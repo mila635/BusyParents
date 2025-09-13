@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "next build",
+    "build:prod": "NODE_OPTIONS='--max-old-space-size=8192' next build",
     "start": "next start",
     "lint": "next lint",
     "postinstall": "prisma generate",
@@ -12,7 +13,9 @@
     "db:generate": "dotenv -e .env -- prisma generate",
     "db:push": "dotenv -e .env -- prisma db push",
     "db:migrate": "dotenv -e .env -- prisma migrate dev",
-    "db:studio": "dotenv -e .env -- prisma studio"
+    "db:studio": "dotenv -e .env -- prisma studio",
+    "clean": "rimraf .next node_modules/.cache",
+    "prebuild": "npm run clean"
   },
   "dependencies": {
     "@prisma/client": "^5.7.1",

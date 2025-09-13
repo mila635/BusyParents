@@ -64,11 +64,16 @@ export default withAuth(
   {
     callbacks: {
       authorized: ({ token, req }) => {
-        // Allow access to public routes and webhooks
+        // Allow access to public routes, webhooks, and health endpoints
         if (req.nextUrl.pathname === '/' || 
             req.nextUrl.pathname.startsWith('/auth/') ||
             req.nextUrl.pathname.startsWith('/api/auth/') ||
-            req.nextUrl.pathname.startsWith('/api/webhook/')) {
+            req.nextUrl.pathname.startsWith('/api/webhook/') ||
+            req.nextUrl.pathname === '/api/health' ||
+            req.nextUrl.pathname === '/api/test-env' ||
+            req.nextUrl.pathname === '/api/test-google-sheets' ||
+            req.nextUrl.pathname.startsWith('/api/stats') ||
+            req.nextUrl.pathname === '/api/log-action') {
           return true
         }
         // Require authentication for protected routes

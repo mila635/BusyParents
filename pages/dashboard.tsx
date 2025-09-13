@@ -107,7 +107,7 @@ export default function Dashboard() {
   // Fetch dashboard stats
   const fetchStats = async () => {
     try {
-      const response = await fetch('/api/dashboard/stats')
+      const response = await fetch('/api/stats')
       if (response.ok) {
         const statsData = await response.json()
         setStats(statsData)
