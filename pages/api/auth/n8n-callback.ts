@@ -1,6 +1,8 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from './[...nextauth]'
+import { encode } from 'next-auth/jwt'
+import { prisma } from '../../../lib/database'
 
 /**
  * N8N OAuth Callback Handler
@@ -55,25 +57,10 @@ export default async function handler(
       scope: scope
     })
 
-    // Create a session-like object for the user
-    const userSession = {
-      user: {
-        email: user_info.email,
-        name: user_info.name,
-        image: user_info.picture || null
-      },
-      accessToken: access_token,
-      refreshToken: refresh_token,
-      expiresAt: expires_in ? Math.floor(Date.now() / 1000) + expires_in : null,
-      scope: scope
-    }
-
-    // Store user data in database for future reference
+    // Store user data in database
+    let dbUser
     try {
-      const { PrismaClient } = require('@prisma/client')
-      const prisma = new PrismaClient()
-      
-      await prisma.user.upsert({
+      dbUser = await prisma.user.upsert({
         where: { email: user_info.email },
         update: {
           name: user_info.name,
@@ -88,25 +75,76 @@ export default async function handler(
           isActive: true
         }
       })
-
-      await prisma.$disconnect()
     } catch (dbError) {
       console.error('Database error in N8N callback:', dbError)
-      // Continue without failing - database is not critical for OAuth flow
+      return res.status(500).json({ 
+        error: 'Database error',
+        message: 'Failed to store user data'
+      })
     }
 
-    // Return success response with redirect URL
-    return res.status(200).json({
-      success: true,
-      message: 'OAuth callback processed successfully',
-      user: userSession.user,
-      redirectUrl: `${process.env.NEXTAUTH_URL}/dashboard?n8n_auth=success`,
-      sessionData: {
-        email: user_info.email,
-        name: user_info.name,
-        accessToken: access_token // This can be used by the frontend to create a session
-      }
-    })
+    // Create NextAuth JWT token for proper session management
+    const token = {
+      sub: dbUser.id,
+      email: user_info.email,
+      name: user_info.name,
+      picture: user_info.picture || null,
+      accessToken: access_token,
+      refreshToken: refresh_token,
+      expiresAt: expires_in ? Math.floor(Date.now() / 1000) + expires_in : null,
+      scope: scope,
+      userId: dbUser.id,
+      role: dbUser.role,
+      isActive: dbUser.isActive,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) // 30 days
+    }
+
+    try {
+      // Encode JWT token using NextAuth's method
+      const encodedToken = await encode({
+        token,
+        secret: process.env.NEXTAUTH_SECRET!,
+        maxAge: 30 * 24 * 60 * 60 // 30 days
+      })
+
+      // Set the session cookie
+      const cookieName = process.env.NODE_ENV === 'production' 
+        ? '__Secure-next-auth.session-token'
+        : 'next-auth.session-token'
+      
+      const cookieOptions = [
+        `${cookieName}=${encodedToken}`,
+        'Path=/',
+        'HttpOnly',
+        'SameSite=Lax',
+        `Max-Age=${30 * 24 * 60 * 60}`, // 30 days
+        ...(process.env.NODE_ENV === 'production' ? ['Secure'] : [])
+      ].join('; ')
+
+      res.setHeader('Set-Cookie', cookieOptions)
+
+      console.log('✅ N8N callback: Session created for user:', user_info.email)
+
+      // Return success with redirect URL
+      return res.status(200).json({
+        success: true,
+        message: 'OAuth callback processed successfully',
+        user: {
+          email: user_info.email,
+          name: user_info.name,
+          image: user_info.picture || null
+        },
+        redirectUrl: `${process.env.NEXTAUTH_URL}/dashboard?auth=n8n_success`
+      })
+
+    } catch (tokenError) {
+      console.error('Error creating session token:', tokenError)
+      return res.status(500).json({ 
+        error: 'Session creation failed',
+        message: 'Failed to create user session'
+      })
+    }
 
   } catch (error) {
     console.error('N8N OAuth callback error:', error)

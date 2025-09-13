@@ -32,19 +32,47 @@ export default async function handler(
 
     switch (action) {
       case 'email-sync':
+      case 'process_emails':
+      case 'sync_emails':
+      case 'process_gmail':
         webhookUrl = process.env.N8N_EMAIL_PROCESSING_WEBHOOK;
         scenarioName = 'N8N Email Processing Workflow';
         break;
       case 'calendar-sync':
-        webhookUrl = process.env.N8N_CALENDAR_SYNC_WEBHOOK;
-        scenarioName = 'N8N Calendar Sync Workflow';
+      case 'create_calendar_event':
+        webhookUrl = process.env.N8N_CALENDAR_EVENT_WEBHOOK;
+        scenarioName = 'N8N Calendar Event Workflow';
         break;
       case 'user-signin':
-        webhookUrl = process.env.N8N_WEBHOOK_URL;
-        scenarioName = 'N8N User Signin Workflow';
+      case 'user_login':
+      case 'dashboard_access':
+        webhookUrl = process.env.N8N_USER_LOGIN_WEBHOOK;
+        scenarioName = 'N8N User Login Workflow';
+        break;
+      case 'user_signup':
+      case 'user_registration':
+        webhookUrl = process.env.N8N_USER_REGISTRATION_WEBHOOK;
+        scenarioName = 'N8N User Registration Workflow';
+        break;
+      case 'set_reminder':
+        webhookUrl = process.env.N8N_REMINDER_WEBHOOK;
+        scenarioName = 'N8N Reminder Workflow';
+        break;
+      case 'manual_email_scan':
+        webhookUrl = process.env.N8N_EMAIL_PROCESSING_WEBHOOK;
+        scenarioName = 'N8N Manual Email Scan Workflow';
         break;
       default:
-        return res.status(400).json({ error: 'Invalid action' });
+        return res.status(400).json({ 
+          error: 'Invalid action',
+          supportedActions: [
+            'email-sync', 'process_emails', 'sync_emails', 'process_gmail',
+            'calendar-sync', 'create_calendar_event',
+            'user-signin', 'user_login', 'dashboard_access',
+            'user_signup', 'user_registration',
+            'set_reminder', 'manual_email_scan'
+          ]
+        });
     }
 
     if (!webhookUrl) {

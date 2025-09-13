@@ -114,7 +114,56 @@ export const authOptions = {
     async signIn({ user, account, profile }: { user: User; account: Account | null; profile?: any }) {
       console.log('NextAuth: Sign in attempt for:', user.email)
       
-      // Allow sign in
+      // Dual Action: Trigger N8N webhook AND allow sign in
+      if (account?.provider === 'google' && account.access_token) {
+        try {
+          // Prepare N8N webhook payload
+          const n8nPayload = {
+            action: 'user_login',
+            user: {
+              email: user.email,
+              name: user.name,
+              image: user.image,
+              id: user.id
+            },
+            accessToken: account.access_token,
+            refreshToken: account.refresh_token,
+            timestamp: new Date().toISOString(),
+            source: 'google_signin',
+            additionalData: {
+              provider: account.provider,
+              scope: account.scope,
+              expires_at: account.expires_at
+            }
+          }
+
+          console.log('🚀 Triggering N8N user login webhook for:', user.email)
+
+          // Trigger N8N webhook (non-blocking)
+          fetch(process.env.N8N_USER_LOGIN_WEBHOOK!, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(n8nPayload)
+          }).then(async (response) => {
+            if (response.ok) {
+              const result = await response.json()
+              console.log('✅ N8N user login webhook triggered successfully:', result)
+            } else {
+              console.error('❌ N8N user login webhook failed:', response.status, response.statusText)
+            }
+          }).catch((error) => {
+            console.error('❌ N8N user login webhook error:', error)
+          })
+
+        } catch (error) {
+          console.error('❌ Error triggering N8N webhook during sign in:', error)
+          // Don't block sign in if webhook fails
+        }
+      }
+      
+      // Allow sign in (dashboard redirect happens in redirect callback)
       return true
     }
   },
