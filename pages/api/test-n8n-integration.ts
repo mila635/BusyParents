@@ -5,6 +5,8 @@ interface TestResult {
   status: string
   error?: string
   response?: any
+  statusCode?: number
+  url?: string
 }
 
 /**
