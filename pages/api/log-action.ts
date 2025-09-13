@@ -100,7 +100,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         await googleSheetsClient.spreadsheets.values.append({
             spreadsheetId,
-            range: 'Sheet1!A1',
+            range: `${process.env.GOOGLE_SHEETS_LOG_RANGE || 'Sheet1!A1'}`,
             valueInputOption: 'USER_ENTERED',
             requestBody: {
                 values: [rowData],

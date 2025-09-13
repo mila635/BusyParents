@@ -30,7 +30,8 @@ export default withAuth(
     const allowedOrigins = [
       process.env.NEXTAUTH_URL,
       'http://localhost:3000',
-      'https://yourdomain.com' // Add your production domain
+      'https://busy-parents-ai.vercel.app/',
+      'https://milafinance.app.n8n.cloud/webhook-test/google-signin' // Add your production domain
     ].filter(Boolean)
 
     if (origin && allowedOrigins.includes(origin)) {

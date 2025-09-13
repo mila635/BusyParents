@@ -55,7 +55,7 @@ export default async function handler(
       timestamp: new Date().toISOString(),
       // Google Sheets configuration for user data retrieval
       user_spreadsheet_id: process.env.GOOGLE_SHEETS_SPREADSHEET_ID, // BusyParentsSpreadSheet
-      user_sheet_name: 'Sheet1', // As specified in N8N workflow
+      user_sheet_name: process.env.GOOGLE_SHEETS_USER_SOURCE_SHEET || 'Sheet1', // As specified in N8N workflow
       // Database sheet for user data updates
       database_spreadsheet_id: process.env.GOOGLE_SHEETS_SPREADSHEET_ID, // AI Assistant Data Base
       database_sheet_name: 'People Data', // For access_token updates
