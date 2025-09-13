@@ -130,6 +130,18 @@ export default function Dashboard() {
     }
   }
 
+  // Handle N8N auth success parameter
+  useEffect(() => {
+    const { auth } = router.query
+    if (auth === 'n8n_success') {
+      setErrorMessage('Successfully signed in via N8N! Your account is now connected.')
+      // Clear the auth parameter from URL
+      router.replace('/dashboard', undefined, { shallow: true })
+      // Clear success message after 5 seconds
+      setTimeout(() => setErrorMessage(null), 5000)
+    }
+  }, [router.query, router])
+
   // Initial data fetch
   useEffect(() => {
     if (session?.accessToken && !hasCheckedStatus) {
@@ -486,17 +498,31 @@ export default function Dashboard() {
           </p>
         </div>
 
-        {/* Error Message */}
+        {/* Error/Success Message */}
         {errorMessage && (
-          <div className="mb-6 p-4 rounded-lg border border-gray-200 bg-white shadow-sm">
+          <div className={`mb-6 p-4 rounded-lg border shadow-sm ${
+            errorMessage.includes('Successfully') || errorMessage.includes('✅') 
+              ? 'border-green-200 bg-green-50' 
+              : 'border-red-200 bg-red-50'
+          }`}>
             <div className="flex items-center">
               <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
+                {errorMessage.includes('Successfully') || errorMessage.includes('✅') ? (
+                  <svg className="h-5 w-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                ) : (
+                  <svg className="h-5 w-5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                )}
               </div>
               <div className="ml-3">
-                <p className="text-sm text-gray-700">{errorMessage}</p>
+                <p className={`text-sm ${
+                  errorMessage.includes('Successfully') || errorMessage.includes('✅') 
+                    ? 'text-green-700' 
+                    : 'text-red-700'
+                }`}>{errorMessage}</p>
               </div>
             </div>
           </div>
