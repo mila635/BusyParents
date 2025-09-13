@@ -32,7 +32,7 @@ export default async function handler(
       n8n_redirect_uri: 'https://milafinance.app.n8n.cloud/webhook/google-signin',
       app_callback_uri: `${process.env.NEXTAUTH_URL}/api/auth/n8n-callback`
     },
-    tests: [] as Array<{ name: string; status: string; error?: string; response?: any }>
+    tests: [] as Array<{ name: string; status: string; error?: string; response?: any; statusCode?: number; url?: string }>
   }
 
   // Test N8N webhook connectivity
