@@ -25,7 +25,11 @@ interface NotificationSettings {
   whatsappNumber: string
   reminderTiming: number // minutes before event
 }
-
+///////
+//////
+////
+////
+/////
 // Dashboard stats interface
 interface DashboardStats {
   emailsProcessed: number
