@@ -84,6 +84,11 @@ export default function Dashboard() {
 
   // Fetch pending events from API
   const fetchPendingEvents = async () => {
+    if (status !== 'authenticated' || !session?.accessToken) {
+      console.log('Dashboard: Skipping events fetch - user not authenticated')
+      return
+    }
+    
     setLoadingEvents(true)
     try {
       const response = await fetch('/api/events')
@@ -91,8 +96,12 @@ export default function Dashboard() {
         const events: PendingEvent[] = await response.json()
         setPendingEvents(events)
         logUserAction('Fetch Events', 'Pending Events', 'success', `Loaded ${events.length} pending events`)
+      } else if (response.status === 401) {
+        console.log('Dashboard: Authentication required for events API')
+        setErrorMessage('Please sign in to view your events.')
+        setTimeout(() => setErrorMessage(null), 3000)
       } else {
-        throw new Error('Failed to fetch events')
+        throw new Error(`Failed to fetch events: ${response.status}`)
       }
     } catch (error) {
       console.error('Error fetching events:', error)
@@ -106,11 +115,20 @@ export default function Dashboard() {
 
   // Fetch dashboard stats
   const fetchStats = async () => {
+    if (status !== 'authenticated' || !session?.accessToken) {
+      console.log('Dashboard: Skipping stats fetch - user not authenticated')
+      return
+    }
+    
     try {
       const response = await fetch('/api/stats')
       if (response.ok) {
         const statsData = await response.json()
         setStats(statsData)
+      } else if (response.status === 401) {
+        console.log('Dashboard: Authentication required for stats API')
+      } else {
+        console.error('Error fetching stats:', response.status)
       }
     } catch (error) {
       console.error('Error fetching stats:', error)
@@ -119,11 +137,20 @@ export default function Dashboard() {
 
   // Fetch notification settings
   const fetchNotificationSettings = async () => {
+    if (status !== 'authenticated' || !session?.accessToken) {
+      console.log('Dashboard: Skipping notification settings fetch - user not authenticated')
+      return
+    }
+    
     try {
       const response = await fetch('/api/notifications/preferences')
       if (response.ok) {
         const settings = await response.json()
         setNotificationSettings(prev => ({ ...prev, ...settings }))
+      } else if (response.status === 401) {
+        console.log('Dashboard: Authentication required for notification settings API')
+      } else {
+        console.error('Error fetching notification settings:', response.status)
       }
     } catch (error) {
       console.error('Error fetching notification settings:', error)
@@ -142,9 +169,10 @@ export default function Dashboard() {
     }
   }, [router.query, router])
 
-  // Initial data fetch
+  // Initial data fetch - only after session is fully authenticated
   useEffect(() => {
-    if (session?.accessToken && !hasCheckedStatus) {
+    if (status === 'authenticated' && session?.accessToken && !hasCheckedStatus) {
+      console.log('Dashboard: Starting data fetch for authenticated user:', session.user?.email)
       checkConnectionStatus()
       fetchPendingEvents()
       fetchStats()
@@ -152,7 +180,7 @@ export default function Dashboard() {
       setHasCheckedStatus(true)
       logUserAction('Dashboard Access', 'Dashboard', 'success', 'User accessed dashboard')
     }
-  }, [session, hasCheckedStatus])
+  }, [status, session, hasCheckedStatus])
 
   // Handle event approval
   const handleApproveEvent = async (eventId: string) => {
@@ -238,7 +266,8 @@ export default function Dashboard() {
   }
 
   const checkConnectionStatus = async () => {
-    if (!session?.accessToken) {
+    if (status !== 'authenticated' || !session?.accessToken) {
+      console.log('Dashboard: Skipping connection status check - user not authenticated')
       return
     }
     
