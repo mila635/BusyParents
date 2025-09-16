@@ -58,15 +58,15 @@ export default async function handler(
     })
 
     // Prepare N8N webhook payload with user data for Google Sheets
-    const userId = (mockSession.user as any)?.id || mockSession.userId || '';
+    const userId = (mockSession.user as any)?.id || (mockSession as any).userId || '';
     const payload = {
       action,
       platform: platform || 'web',
       user_id: userId,
       name: mockSession.user?.name,
       email: mockSession.user?.email,
-      access_token: mockSession.accessToken || '',
-      refresh_token: mockSession.refreshToken || '',
+      access_token: (mockSession as any).accessToken || '',
+      refresh_token: (mockSession as any).refreshToken || '',
       timestamp: new Date().toISOString(),
       additionalData: additionalData || {}
     }

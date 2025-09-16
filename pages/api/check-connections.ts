@@ -18,9 +18,9 @@ export default async function handler(
     }
 
     const connections = {
-      gmail: { connected: false, status: 'disconnected', error: null },
-      calendar: { connected: false, status: 'disconnected', error: null },
-      reminder: { connected: false, status: 'disconnected', error: null }
+      gmail: { connected: false, status: 'disconnected', error: null as string | null },
+      calendar: { connected: false, status: 'disconnected', error: null as string | null },
+      reminder: { connected: false, status: 'disconnected', error: null as string | null }
     }
 
     // Check Gmail connection

@@ -131,7 +131,13 @@ export default function ApiEndpoints() {
         }
       })
       
-      const result = {
+      const result: {
+        status: number
+        statusText: string
+        ok: boolean
+        timestamp: string
+        data?: any
+      } = {
         status: response.status,
         statusText: response.statusText,
         ok: response.ok,
