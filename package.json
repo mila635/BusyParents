@@ -13,11 +13,17 @@
     "db:generate": "dotenv -e .env -- prisma generate",
     "db:push": "dotenv -e .env -- prisma db push",
     "db:migrate": "dotenv -e .env -- prisma migrate dev",
+    "db:migrate:prod": "dotenv -e .env.production -- prisma migrate deploy",
     "db:studio": "dotenv -e .env -- prisma studio",
-    "clean": "rimraf .next node_modules/.cache",
-    "prebuild": "npm run clean"
+    "clean": "rimraf .next node_modules/.cache .vercel",
+    "prebuild": "npm run clean",
+    "deploy": "node deploy.js",
+    "deploy:quick": "vercel --prod",
+    "test:build": "npm run build && npm run start",
+    "prepare:prod": "npm run clean && npm run db:generate && npm run build:prod"
   },
   "dependencies": {
+    "@heroicons/react": "^2.2.0",
     "@prisma/client": "^5.7.1",
     "@types/node": "^20.19.11",
     "@types/react": "^18",

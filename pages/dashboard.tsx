@@ -23,13 +23,9 @@ interface NotificationSettings {
   whatsappAlerts: boolean
   emailAddress: string
   whatsappNumber: string
-  reminderTiming: number // minutes before event
+  reminderTiming: number
 }
-///////
-//////
-////
-////
-/////
+
 // Dashboard stats interface
 interface DashboardStats {
   emailsProcessed: number
@@ -66,16 +62,21 @@ export default function Dashboard() {
   })
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [hasCheckedStatus, setHasCheckedStatus] = useState(false)
+  const [pendingEvents, setPendingEvents] = useState<PendingEvent[]>([])
+  const [isLoadingEvents, setIsLoadingEvents] = useState(false)
+  const [isProcessingWorkflow, setIsProcessingWorkflow] = useState(false)
+  const [recentActivity, setRecentActivity] = useState<Array<{id: string, type: string, message: string, timestamp: Date}>>([])  
+  const [systemStatus, setSystemStatus] = useState<'online' | 'processing' | 'offline'>('online')
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
   
   // State for pending events and stats
-  const [pendingEvents, setPendingEvents] = useState<PendingEvent[]>([])
-  const [loadingEvents, setLoadingEvents] = useState(false)
   const [editingEvent, setEditingEvent] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<Partial<PendingEvent>>({})
   const [stats, setStats] = useState<DashboardStats>({ emailsProcessed: 0, eventsCreated: 0, timeSaved: 0 })
   const [isTriggeringWorkflow, setIsTriggeringWorkflow] = useState(false)
+  const [isLiveUpdatesConnected, setIsLiveUpdatesConnected] = useState(false)
   
-  // State for new features
+  // State for notification settings
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
     emailAlerts: false,
     whatsappAlerts: false,
@@ -86,382 +87,67 @@ export default function Dashboard() {
   const [showNotificationSettings, setShowNotificationSettings] = useState(false)
   const [isSavingSettings, setIsSavingSettings] = useState(false)
 
-  // Fetch pending events from API
-  const fetchPendingEvents = async () => {
-    if (status !== 'authenticated' || !session?.accessToken) {
-      console.log('Dashboard: Skipping events fetch - user not authenticated')
-      return
-    }
-    
-    setLoadingEvents(true)
-    try {
-      const response = await fetch('/api/events')
-      if (response.ok) {
-        const events: PendingEvent[] = await response.json()
-        setPendingEvents(events)
-        logUserAction('Fetch Events', 'Pending Events', 'success', `Loaded ${events.length} pending events`)
-      } else if (response.status === 401) {
-        console.log('Dashboard: Authentication required for events API')
-        setErrorMessage('Please sign in to view your events.')
-        setTimeout(() => setErrorMessage(null), 3000)
-      } else {
-        throw new Error(`Failed to fetch events: ${response.status}`)
-      }
-    } catch (error) {
-      console.error('Error fetching events:', error)
-      setErrorMessage('Failed to load pending events. Please try again.')
-      setTimeout(() => setErrorMessage(null), 3000)
-      logUserAction('Fetch Events', 'Pending Events', 'failed', 'Failed to load pending events')
-    } finally {
-      setLoadingEvents(false)
-    }
-  }
-
-  // Fetch dashboard stats
-  const fetchStats = async () => {
-    if (status !== 'authenticated' || !session?.accessToken) {
-      console.log('Dashboard: Skipping stats fetch - user not authenticated')
-      return
-    }
-    
-    try {
-      const response = await fetch('/api/stats')
-      if (response.ok) {
-        const statsData = await response.json()
-        setStats(statsData)
-      } else if (response.status === 401) {
-        console.log('Dashboard: Authentication required for stats API')
-      } else {
-        console.error('Error fetching stats:', response.status)
-      }
-    } catch (error) {
-      console.error('Error fetching stats:', error)
-    }
-  }
-
-  // Fetch notification settings
-  const fetchNotificationSettings = async () => {
-    if (status !== 'authenticated' || !session?.accessToken) {
-      console.log('Dashboard: Skipping notification settings fetch - user not authenticated')
-      return
-    }
-    
-    try {
-      const response = await fetch('/api/notifications/preferences')
-      if (response.ok) {
-        const settings = await response.json()
-        setNotificationSettings(prev => ({ ...prev, ...settings }))
-      } else if (response.status === 401) {
-        console.log('Dashboard: Authentication required for notification settings API')
-      } else {
-        console.error('Error fetching notification settings:', response.status)
-      }
-    } catch (error) {
-      console.error('Error fetching notification settings:', error)
-    }
-  }
-
-  // Handle N8N auth success parameter
+  // Set up real-time updates using Server-Sent Events
   useEffect(() => {
-    const { auth } = router.query
-    if (auth === 'n8n_success') {
-      setErrorMessage('Successfully signed in via N8N! Your account is now connected.')
-      // Clear the auth parameter from URL
-      router.replace('/dashboard', undefined, { shallow: true })
-      // Clear success message after 5 seconds
-      setTimeout(() => setErrorMessage(null), 5000)
-    }
-  }, [router.query, router])
-
-  // Initial data fetch - only after session is fully authenticated
-  useEffect(() => {
-    if (status === 'authenticated' && session?.accessToken && !hasCheckedStatus) {
-      console.log('Dashboard: Starting data fetch for authenticated user:', session.user?.email)
-      checkConnectionStatus()
-      fetchPendingEvents()
-      fetchStats()
-      fetchNotificationSettings()
-      setHasCheckedStatus(true)
-      logUserAction('Dashboard Access', 'Dashboard', 'success', 'User accessed dashboard')
-    }
-  }, [status, session, hasCheckedStatus])
-
-  // Handle event approval
-  const handleApproveEvent = async (eventId: string) => {
-    try {
-      const eventToApprove = pendingEvents.find(e => e.id === eventId)
-      if (!eventToApprove) return
-      
-      const response = await fetch('/api/create-calendar-event', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(eventToApprove)
-      })
-      
-      if (response.ok) {
-        setPendingEvents(prev => prev.filter(event => event.id !== eventId))
-        setErrorMessage('✅ Event approved and added to calendar!')
-        setTimeout(() => setErrorMessage(null), 3000)
-        logUserAction('Approve Event', 'Pending Events', 'success', `Event ${eventId} approved`)
-        fetchStats()
-      } else {
-        throw new Error('Failed to approve event')
-      }
-    } catch (error) {
-      console.error('Error approving event:', error)
-      setErrorMessage('❌ Failed to approve event. Please try again.')
-      setTimeout(() => setErrorMessage(null), 3000)
-      logUserAction('Approve Event', 'Pending Events', 'failed', `Failed to approve event ${eventId}`)
-    }
-  }
-
-  // Handle event rejection
-  const handleRejectEvent = async (eventId: string) => {
-    try {
-      const response = await fetch(`/api/events/${eventId}`, {
-        method: 'DELETE'
-      })
-      
-      if (response.ok) {
-        setPendingEvents(prev => prev.filter(event => event.id !== eventId))
-        setErrorMessage('Event rejected successfully!')
-        setTimeout(() => setErrorMessage(null), 3000)
-        logUserAction('Reject Event', 'Pending Events', 'success', `Event ${eventId} rejected`)
-      } else {
-        throw new Error('Failed to reject event')
-      }
-    } catch (error) {
-      console.error('Error rejecting event:', error)
-      setErrorMessage('Failed to reject event. Please try again.')
-      setTimeout(() => setErrorMessage(null), 3000)
-      logUserAction('Reject Event', 'Pending Events', 'failed', `Failed to reject event ${eventId}`)
-    }
-  }
-
-  // Handle event editing
-  const handleSaveEvent = async (eventId: string) => {
-    try {
-      const updatedEvent = { ...pendingEvents.find(e => e.id === eventId), ...editForm }
-      
-      const response = await fetch(`/api/events/${eventId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedEvent),
-      })
-
-      if (response.ok) {
-        setPendingEvents(prev =>
-          prev.map(event =>
-            event.id === eventId ? (updatedEvent as PendingEvent) : event
-          )
-        )
-        setEditingEvent(null)
-        setEditForm({})
-        setErrorMessage('Event updated successfully!')
-        setTimeout(() => setErrorMessage(null), 3000)
-        logUserAction('Edit Event', 'Pending Events', 'success', `Event ${eventId} updated`)
-      }
-    } catch (error) {
-      console.error('Error saving event:', error)
-      setErrorMessage('Failed to save changes. Please try again.')
-      setTimeout(() => setErrorMessage(null), 3000)
-      logUserAction('Edit Event', 'Pending Events', 'failed', `Failed to update event ${eventId}`)
-    }
-  }
-
-  const checkConnectionStatus = async () => {
-    if (status !== 'authenticated' || !session?.accessToken) {
-      console.log('Dashboard: Skipping connection status check - user not authenticated')
+    if (status !== 'authenticated' || !session?.user?.email) {
+      console.log('Dashboard: Skipping real-time updates - user not authenticated')
       return
     }
+
+    console.log('🔗 Setting up real-time updates for:', session.user.email)
+    const eventSource = new EventSource(`/api/dashboard/live-updates?email=${encodeURIComponent(session.user.email)}`)
     
-    try {
-      const gmailResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
-        headers: { 'Authorization': `Bearer ${session?.accessToken}` }
-      })
-      setConnectionStatus(prev => ({ ...prev, gmail: gmailResponse.ok ? 'connected' : 'not_connected' }))
-
-      const calendarResponse = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
-        headers: { 'Authorization': `Bearer ${session?.accessToken}` }
-      })
-      setConnectionStatus(prev => ({ ...prev, calendar: calendarResponse.ok ? 'connected' : 'not_connected' }))
-
-      setConnectionStatus(prev => ({ ...prev, reminder: 'connected' }))
-      
-    } catch (error) {
-      console.error('Error checking connection status:', error)
-      logUserAction('Status Check', 'Dashboard', 'failed', 'Connection check failed')
+    eventSource.onopen = () => {
+      console.log('✅ Real-time updates connected')
+      setIsLiveUpdatesConnected(true)
     }
-  }
-
-  const handleConnect = async (service: string) => {
-    setIsConnecting(service)
-    setErrorMessage(null)
-    logUserAction('Connect Attempt', service.charAt(0).toUpperCase() + service.slice(1), 'pending', 'User clicked connect button')
-    signIn('google')
-  }
-
-  const handleDisconnect = async (service: string) => {
-    logUserAction('Disconnect', service.charAt(0).toUpperCase() + service.slice(1), 'success', 'User manually disconnected service')
-    try {
-      setConnectionStatus(prev => ({ ...prev, [service]: 'not_connected' }))
-      setErrorMessage(`${service.charAt(0).toUpperCase() + service.slice(1)} disconnected successfully!`)
-      setTimeout(() => setErrorMessage(null), 3000)
-    } catch (error) {
-      console.error(`Error disconnecting ${service}:`, error)
-    }
-  }
-
-  const getButtonText = (service: string) => {
-    if (isConnecting === service) return 'Connecting...'
-    if (connectionStatus[service] === 'connected') return 'Connected'
-    if (connectionStatus[service] === 'failed') return 'Retry'
-    return 'Connect'
-  }
-
-  const getButtonClass = (service: string) => {
-    if (isConnecting === service) {
-      return 'bg-gray-300 text-gray-500 cursor-not-allowed'
-    }
-    if (connectionStatus[service] === 'connected') {
-      return 'bg-green-600 hover:bg-green-700 text-white'
-    }
-    if (connectionStatus[service] === 'failed') {
-      return 'bg-red-600 hover:bg-red-700 text-white'
-    }
-    return 'bg-blue-600 hover:bg-blue-700 text-white'
-  }
-
-  const isButtonDisabled = (service: string) => {
-    return isConnecting === service
-  }
-
-  const handleRefreshStatus = () => {
-    logUserAction('Refresh Status', 'Dashboard', 'pending', 'User manually refreshed connection status')
-    checkConnectionStatus()
-  }
-
-  const getConfidenceColor = (score: number) => {
-    if (score >= 0.8) return 'text-green-600 bg-green-100'
-    if (score >= 0.6) return 'text-yellow-600 bg-yellow-100'
-    return 'text-red-600 bg-red-100'
-  }
-
-  const formatDate = (isoString: string) => {
-    const date = new Date(isoString)
-    return `${date.toLocaleDateString()} at ${date.toLocaleTimeString()}`
-  }
-
-  // Use local API endpoint for N8N workflow triggers
-  const N8N_API_ENDPOINT = '/api/n8n/trigger-workflows'
-
-  // Trigger N8N workflows on dashboard access
-  useEffect(() => {
-    if (session?.accessToken && hasCheckedStatus) {
-      triggerN8NWorkflowsOnLogin()
-    }
-  }, [session, hasCheckedStatus])
-
-  const triggerN8NWorkflowsOnLogin = async () => {
-    try {
-      const response = await fetch(N8N_API_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'dashboard_access',
-          workflowType: 'both'
-        }),
-      })
-
-      if (response.ok) {
-        const result = await response.json()
-        console.log('N8N workflows triggered successfully:', result.message)
-        logUserAction('N8N Workflows', 'Dashboard Access', 'success', result.message)
-      } else {
-        const error = await response.json()
-        console.warn('N8N workflow trigger failed:', error.message)
-        logUserAction('N8N Workflows', 'Dashboard Access', 'failed', error.message)
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        console.log('📡 Real-time update received:', data)
+        
+        if (data.type === 'activity') {
+          setRecentActivity(prev => [data, ...prev.slice(0, 9)])
+        }
+        
+        if (data.type === 'stats') {
+          setStats(data.stats)
+        }
+        
+        if (data.type === 'events') {
+          setPendingEvents(data.events)
+        }
+      } catch (error) {
+        console.error('Error parsing real-time data:', error)
       }
-    } catch (error) {
-      console.warn('N8N workflows not available - this is normal in development mode')
-      logUserAction('N8N Workflows', 'Dashboard Access', 'skipped', 'N8N not configured')
     }
-  }
-
-  const handleTriggerWorkflow = async () => {
-    setIsTriggeringWorkflow(true)
-    try {
-      // Trigger N8N workflows via local API endpoint
-      const response = await fetch(N8N_API_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'manual_email_scan',
-          workflowType: 'both'
-        }),
-      })
-
-      if (response.ok) {
-        const result = await response.json()
-        setErrorMessage(`✅ N8N Workflows triggered! (${result.summary.successful}/${result.summary.total} successful) Check your inbox for new events.`)
-        fetchPendingEvents()
-        fetchStats()
-        logUserAction('Trigger Workflow', 'N8N Integration', 'success', result.message)
-      } else {
-        const error = await response.json()
-        setErrorMessage(`❌ Failed to trigger workflows: ${error.message}`)
-        logUserAction('Trigger Workflow', 'N8N Integration', 'failed', 'All workflow triggers failed')
-      }
-    } catch (error) {
-      setErrorMessage('❌ Failed to trigger workflow. Network error.')
-      logUserAction('Trigger Workflow', 'N8N Integration', 'failed', 'Network error during workflow trigger')
-    } finally {
-      setIsTriggeringWorkflow(false)
-      setTimeout(() => setErrorMessage(null), 5000)
+    
+    eventSource.onerror = (error) => {
+      console.error('❌ Real-time updates error:', error)
+      setIsLiveUpdatesConnected(false)
     }
-  }
 
-  const handleSaveNotificationSettings = async () => {
-    setIsSavingSettings(true)
+    return () => {
+      console.log('🔗 Closing real-time updates connection')
+      eventSource.close()
+      setIsLiveUpdatesConnected(false)
+    }
+  }, [status, session?.user?.email])
+
+  // Send test WhatsApp message
+  const sendTestWhatsApp = async () => {
     try {
-      const response = await fetch('/api/notifications/preferences', {
+      const response = await fetch('/api/notifications/test-whatsapp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(notificationSettings)
-      })
-      if (response.ok) {
-        setErrorMessage('✅ Notification settings saved successfully!')
-        logUserAction('Save Settings', 'Notifications', 'success', 'User updated notification preferences')
-      } else {
-        throw new Error('Failed to save settings')
-      }
-    } catch (error) {
-      console.error('Error saving settings:', error)
-      setErrorMessage('❌ Failed to save settings. Please try again.')
-      logUserAction('Save Settings', 'Notifications', 'failed', 'Failed to save notification settings')
-    } finally {
-      setIsSavingSettings(false)
-      setTimeout(() => setErrorMessage(null), 3000)
-    }
-  }
-
-  const handleTestWhatsApp = async () => {
-    try {
-      const response = await fetch('/api/notifications/preferences?action=test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'whatsapp',
-          number: notificationSettings.whatsappNumber
+        body: JSON.stringify({ 
+          whatsappNumber: notificationSettings.whatsappNumber 
         })
       })
+      
       if (response.ok) {
         setErrorMessage('✅ Test WhatsApp message sent successfully!')
-        logUserAction('Test WhatsApp', 'Notifications', 'success', 'User tested WhatsApp notification')
       } else {
         const errorData = await response.json()
         throw new Error(errorData.error || 'Failed to send test WhatsApp')
@@ -470,23 +156,21 @@ export default function Dashboard() {
       console.error('Error sending test WhatsApp:', error)
       const errorMessage = error instanceof Error ? error.message : String(error)
       setErrorMessage(`❌ ${errorMessage}`)
-      logUserAction('Test WhatsApp', 'Notifications', 'failed', 'Failed to send test WhatsApp message')
     }
+    
     setTimeout(() => setErrorMessage(null), 5000)
   }
 
-  const handleTestEmail = async () => {
+  // Send test email notification
+  const sendTestEmail = async () => {
     try {
-      const response = await fetch('/api/notifications/preferences?action=test', {
+      const response = await fetch('/api/notifications/test-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'email'
-        })
+        headers: { 'Content-Type': 'application/json' }
       })
+      
       if (response.ok) {
         setErrorMessage('✅ Test email notification sent successfully!')
-        logUserAction('Test Email', 'Notifications', 'success', 'User tested email notification')
       } else {
         const errorData = await response.json()
         throw new Error(errorData.error || 'Failed to send test email')
@@ -495,11 +179,206 @@ export default function Dashboard() {
       console.error('Error sending test email:', error)
       const errorMessage = error instanceof Error ? error.message : String(error)
       setErrorMessage(`❌ ${errorMessage}`)
-      logUserAction('Test Email', 'Notifications', 'failed', 'Failed to send test email notification')
     }
+    
     setTimeout(() => setErrorMessage(null), 5000)
   }
 
+
+
+  // Check connection status
+  const checkConnectionStatus = async () => {
+    if (hasCheckedStatus) return
+    
+    try {
+      const response = await fetch('/api/check-connections')
+      if (response.ok) {
+        const data = await response.json()
+        setConnectionStatus(data)
+      }
+    } catch (error) {
+      console.error('Error checking connection status:', error)
+    } finally {
+      setHasCheckedStatus(true)
+    }
+  }
+
+  // Connect service
+  const connectService = async (service: string) => {
+    setIsConnecting(service)
+    try {
+      const response = await fetch(`/api/connect-${service}`, {
+        method: 'POST'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.authUrl) {
+          window.open(data.authUrl, '_blank')
+        }
+        setConnectionStatus(prev => ({ ...prev, [service]: 'connected' }))
+        setErrorMessage(`✅ ${service.charAt(0).toUpperCase() + service.slice(1)} connected successfully!`)
+      } else {
+        throw new Error(`Failed to connect ${service}`)
+      }
+    } catch (error) {
+      console.error(`Error connecting ${service}:`, error)
+      setConnectionStatus(prev => ({ ...prev, [service]: 'failed' }))
+      setErrorMessage(`❌ Failed to connect ${service}. Please try again.`)
+    } finally {
+      setIsConnecting(null)
+    }
+  }
+
+  // Fetch pending events
+  const fetchPendingEvents = async () => {
+    setIsLoadingEvents(true)
+    try {
+      const response = await fetch('/api/events/pending')
+      if (response.ok) {
+        const data = await response.json()
+        // API already returns transformed data
+        setPendingEvents(data)
+      }
+    } catch (error) {
+      console.error('Error fetching pending events:', error)
+    } finally {
+      setIsLoadingEvents(false)
+    }
+  }
+
+  // Approve event
+  const approveEvent = async (eventId: string) => {
+    try {
+      const response = await fetch('/api/events/approve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ eventId })
+      })
+      
+      if (response.ok) {
+        setPendingEvents(prev => prev.filter(event => event.id !== eventId))
+        setErrorMessage('✅ Event approved and added to calendar!')
+        // Update stats
+        setStats(prev => ({ ...prev, eventsCreated: prev.eventsCreated + 1 }))
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to approve event')
+      }
+    } catch (error) {
+      console.error('Error approving event:', error)
+      setErrorMessage('❌ Failed to approve event. Please try again.')
+    }
+  }
+
+  // Reject event
+  const rejectEvent = async (eventId: string) => {
+    try {
+      const response = await fetch('/api/events/reject', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ eventId })
+      })
+      
+      if (response.ok) {
+        setPendingEvents(prev => prev.filter(event => event.id !== eventId))
+        setErrorMessage('✅ Event rejected successfully.')
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to reject event')
+      }
+    } catch (error) {
+      console.error('Error rejecting event:', error)
+      setErrorMessage('❌ Failed to reject event. Please try again.')
+    }
+  }
+
+  // Save notification settings
+  const saveNotificationSettings = async () => {
+    setIsSavingSettings(true)
+    try {
+      const response = await fetch('/api/notification-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(notificationSettings)
+      })
+      
+      if (response.ok) {
+        setErrorMessage('✅ Notification settings saved successfully!')
+      } else {
+        throw new Error('Failed to save settings')
+      }
+    } catch (error) {
+      console.error('Error saving notification settings:', error)
+      setErrorMessage('❌ Failed to save notification settings. Please try again.')
+    } finally {
+      setIsSavingSettings(false)
+    }
+    
+    setTimeout(() => setErrorMessage(null), 5000)
+  }
+
+  // Trigger workflow manually
+  const triggerWorkflow = async () => {
+    setIsProcessingWorkflow(true)
+    setSystemStatus('processing')
+    setLastUpdate(new Date())
+    
+    try {
+      const response = await fetch('/api/trigger-workflow', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          action: 'manual_email_scan',
+          platform: 'web'
+        })
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setErrorMessage('✅ Workflow triggered successfully! Processing emails...')
+        
+        // Add to recent activity
+        const newActivity = {
+          id: Date.now().toString(),
+          type: 'workflow',
+          message: 'Manual workflow triggered',
+          timestamp: new Date()
+        }
+        setRecentActivity(prev => [newActivity, ...prev.slice(0, 4)])
+        
+        // Refresh pending events after a delay
+        setTimeout(() => {
+          fetchPendingEvents()
+          setSystemStatus('online')
+          setLastUpdate(new Date())
+        }, 3000)
+      } else {
+        throw new Error('Failed to trigger workflow')
+      }
+    } catch (error) {
+      console.error('Error triggering workflow:', error)
+      setErrorMessage('❌ Failed to trigger workflow. Please try again.')
+      setSystemStatus('offline')
+      setLastUpdate(new Date())
+    } finally {
+      setIsProcessingWorkflow(false)
+    }
+  }
+
+  // Check connections and fetch events on mount
+  useEffect(() => {
+    checkConnectionStatus()
+    fetchPendingEvents()
+  }, [])
+
+  // Loading state
   if (status === 'loading') {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -516,6 +395,7 @@ export default function Dashboard() {
     return null
   }
 
+  // Main component render
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
@@ -531,33 +411,58 @@ export default function Dashboard() {
           </p>
         </div>
 
-        {/* Error/Success Message */}
-        {errorMessage && (
-          <div className={`mb-6 p-4 rounded-lg border shadow-sm ${
-            errorMessage.includes('Successfully') || errorMessage.includes('✅') 
-              ? 'border-green-200 bg-green-50' 
-              : 'border-red-200 bg-red-50'
-          }`}>
+        {/* Real-time Status Banner */}
+        <div className={`mb-6 p-4 rounded-lg border ${
+          systemStatus === 'online' ? 'bg-green-50 border-green-200' :
+          systemStatus === 'processing' ? 'bg-blue-50 border-blue-200' :
+          'bg-red-50 border-red-200'
+        }`}>
+          <div className="flex items-center justify-between">
             <div className="flex items-center">
-              <div className="flex-shrink-0">
-                {errorMessage.includes('Successfully') || errorMessage.includes('✅') ? (
-                  <svg className="h-5 w-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                ) : (
-                  <svg className="h-5 w-5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                  </svg>
-                )}
-              </div>
-              <div className="ml-3">
-                <p className={`text-sm ${
-                  errorMessage.includes('Successfully') || errorMessage.includes('✅') 
-                    ? 'text-green-700' 
-                    : 'text-red-700'
-                }`}>{errorMessage}</p>
+              <div className={`w-3 h-3 rounded-full mr-3 ${
+                systemStatus === 'online' ? 'bg-green-500' :
+                systemStatus === 'processing' ? 'bg-blue-500 animate-pulse' :
+                'bg-red-500'
+              }`}></div>
+              <div>
+                <p className={`text-sm font-medium ${
+                  systemStatus === 'online' ? 'text-green-800' :
+                  systemStatus === 'processing' ? 'text-blue-800' :
+                  'text-red-800'
+                }`}>
+                  {systemStatus === 'online' ? 'System Online' :
+                   systemStatus === 'processing' ? 'Processing Emails...' :
+                   'System Offline'}
+                </p>
+                <p className={`text-xs ${
+                  systemStatus === 'online' ? 'text-green-600' :
+                  systemStatus === 'processing' ? 'text-blue-600' :
+                  'text-red-600'
+                }`}>
+                  {systemStatus === 'online' ? 'All services running normally' :
+                   systemStatus === 'processing' ? 'Checking for new events and reminders' :
+                   'Some services may be unavailable'}
+                </p>
               </div>
             </div>
+            <div className={`text-xs ${
+              systemStatus === 'online' ? 'text-green-600' :
+              systemStatus === 'processing' ? 'text-blue-600' :
+              'text-red-600'
+            }`}>
+              Last updated: {lastUpdate.toLocaleTimeString()}
+            </div>
+          </div>
+        </div>
+
+        {/* Error/Success Message */}
+        {errorMessage && (
+          <div className={`mb-6 p-4 rounded-md ${
+            errorMessage.includes('✅') 
+              ? 'bg-green-50 border border-green-200 text-green-800' 
+              : 'bg-red-50 border border-red-200 text-red-800'
+          }`}>
+            {errorMessage}
           </div>
         )}
 
@@ -615,224 +520,120 @@ export default function Dashboard() {
         {/* Service Connection Status */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-8">
           <div className="px-6 py-4 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-medium text-gray-900">Service Connections</h2>
-              <button
-                onClick={handleRefreshStatus}
-                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-              >
-                Refresh Status
-              </button>
-            </div>
+            <h3 className="text-lg font-medium text-gray-900">Service Connections</h3>
+            <p className="text-sm text-gray-600">Connect your accounts to enable automated email processing</p>
           </div>
           <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Gmail Connection */}
-              <div className="text-center">
-                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-8 h-8 text-red-600" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-.904.732-1.636 1.636-1.636h3.819l6.545 4.91 6.545-4.91h3.819A1.636 1.636 0 0 1 24 5.457z"/>
-                  </svg>
+              <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                <div className="flex items-center">
+                  <div className={`w-3 h-3 rounded-full mr-3 ${
+                    connectionStatus.gmail === 'connected' ? 'bg-green-500' :
+                    connectionStatus.gmail === 'failed' ? 'bg-red-500' : 'bg-gray-300'
+                  }`}></div>
+                  <div>
+                    <p className="font-medium text-gray-900">Gmail</p>
+                    <p className="text-sm text-gray-600">
+                      {connectionStatus.gmail === 'connected' ? 'Connected' :
+                       connectionStatus.gmail === 'failed' ? 'Failed' : 'Not Connected'}
+                    </p>
+                  </div>
                 </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Gmail</h3>
-                <p className="text-sm text-gray-600 mb-4">Connect your Gmail to process emails automatically</p>
                 <button
-                  onClick={() => connectionStatus.gmail === 'connected' ? handleDisconnect('gmail') : handleConnect('gmail')}
-                  disabled={isButtonDisabled('gmail')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${getButtonClass('gmail')}`}
+                  onClick={() => connectService('gmail')}
+                  disabled={isConnecting === 'gmail' || connectionStatus.gmail === 'connected'}
+                  className={`px-3 py-1 text-sm rounded-md ${
+                    connectionStatus.gmail === 'connected'
+                      ? 'bg-green-100 text-green-800 cursor-not-allowed'
+                      : 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50'
+                  }`}
                 >
-                  {getButtonText('gmail')}
+                  {isConnecting === 'gmail' ? 'Connecting...' :
+                   connectionStatus.gmail === 'connected' ? 'Connected' : 'Connect'}
                 </button>
               </div>
 
               {/* Calendar Connection */}
-              <div className="text-center">
-                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
+              <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                <div className="flex items-center">
+                  <div className={`w-3 h-3 rounded-full mr-3 ${
+                    connectionStatus.calendar === 'connected' ? 'bg-green-500' :
+                    connectionStatus.calendar === 'failed' ? 'bg-red-500' : 'bg-gray-300'
+                  }`}></div>
+                  <div>
+                    <p className="font-medium text-gray-900">Calendar</p>
+                    <p className="text-sm text-gray-600">
+                      {connectionStatus.calendar === 'connected' ? 'Connected' :
+                       connectionStatus.calendar === 'failed' ? 'Failed' : 'Not Connected'}
+                    </p>
+                  </div>
                 </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Google Calendar</h3>
-                <p className="text-sm text-gray-600 mb-4">Sync events directly to your calendar</p>
                 <button
-                  onClick={() => connectionStatus.calendar === 'connected' ? handleDisconnect('calendar') : handleConnect('calendar')}
-                  disabled={isButtonDisabled('calendar')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${getButtonClass('calendar')}`}
+                  onClick={() => connectService('calendar')}
+                  disabled={isConnecting === 'calendar' || connectionStatus.calendar === 'connected'}
+                  className={`px-3 py-1 text-sm rounded-md ${
+                    connectionStatus.calendar === 'connected'
+                      ? 'bg-green-100 text-green-800 cursor-not-allowed'
+                      : 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50'
+                  }`}
                 >
-                  {getButtonText('calendar')}
+                  {isConnecting === 'calendar' ? 'Connecting...' :
+                   connectionStatus.calendar === 'connected' ? 'Connected' : 'Connect'}
                 </button>
               </div>
 
-              {/* Smart Reminders */}
-              <div className="text-center">
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-5 5v-5zM4 19h6v-2H4v2zM4 15h8v-2H4v2zM4 11h8V9H4v2z" />
-                  </svg>
+              {/* Smart Reminders Connection */}
+              <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                <div className="flex items-center">
+                  <div className={`w-3 h-3 rounded-full mr-3 ${
+                    connectionStatus.reminder === 'connected' ? 'bg-green-500' :
+                    connectionStatus.reminder === 'failed' ? 'bg-red-500' : 'bg-gray-300'
+                  }`}></div>
+                  <div>
+                    <p className="font-medium text-gray-900">Smart Reminders</p>
+                    <p className="text-sm text-gray-600">
+                      {connectionStatus.reminder === 'connected' ? 'Connected' :
+                       connectionStatus.reminder === 'failed' ? 'Failed' : 'Not Connected'}
+                    </p>
+                  </div>
                 </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Smart Reminders</h3>
-                <p className="text-sm text-gray-600 mb-4">Get intelligent notifications for your events</p>
                 <button
-                  onClick={() => setShowNotificationSettings(!showNotificationSettings)}
-                  className="px-4 py-2 rounded-md text-sm font-medium bg-green-600 hover:bg-green-700 text-white transition-colors"
+                  onClick={() => connectService('reminder')}
+                  disabled={isConnecting === 'reminder' || connectionStatus.reminder === 'connected'}
+                  className={`px-3 py-1 text-sm rounded-md ${
+                    connectionStatus.reminder === 'connected'
+                      ? 'bg-green-100 text-green-800 cursor-not-allowed'
+                      : 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50'
+                  }`}
                 >
-                  Configure
+                  {isConnecting === 'reminder' ? 'Connecting...' :
+                   connectionStatus.reminder === 'connected' ? 'Connected' : 'Connect'}
                 </button>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Notification Settings */}
-        {showNotificationSettings && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-8">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-medium text-gray-900">Notification Settings</h2>
-            </div>
-            <div className="p-6">
-              <div className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-900">Email Alerts</h3>
-                    <p className="text-sm text-gray-600">Receive email notifications for new events</p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={notificationSettings.emailAlerts}
-                      onChange={(e) => setNotificationSettings(prev => ({ ...prev, emailAlerts: e.target.checked }))}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-900">WhatsApp Alerts</h3>
-                    <p className="text-sm text-gray-600">Receive WhatsApp notifications for new events</p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={notificationSettings.whatsappAlerts}
-                      onChange={(e) => setNotificationSettings(prev => ({ ...prev, whatsappAlerts: e.target.checked }))}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
-                </div>
-
-                {notificationSettings.whatsappAlerts && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      WhatsApp Number
-                    </label>
-                    <div className="flex space-x-2">
-                      <input
-                        type="tel"
-                        value={notificationSettings.whatsappNumber}
-                        onChange={(e) => setNotificationSettings(prev => ({ ...prev, whatsappNumber: e.target.value }))}
-                        placeholder="+1234567890"
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                      <button
-                        onClick={handleTestWhatsApp}
-                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
-                      >
-                        Test
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {notificationSettings.emailAlerts && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Email Address
-                    </label>
-                    <div className="flex space-x-2">
-                      <input
-                        type="email"
-                        value={notificationSettings.emailAddress}
-                        onChange={(e) => setNotificationSettings(prev => ({ ...prev, emailAddress: e.target.value }))}
-                        placeholder="your@email.com"
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                      <button
-                        onClick={handleTestEmail}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
-                      >
-                        Test
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Reminder Timing (minutes before event)
-                  </label>
-                  <select
-                    value={notificationSettings.reminderTiming}
-                    onChange={(e) => setNotificationSettings(prev => ({ ...prev, reminderTiming: parseInt(e.target.value) }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value={15}>15 minutes</option>
-                    <option value={30}>30 minutes</option>
-                    <option value={60}>1 hour</option>
-                    <option value={120}>2 hours</option>
-                    <option value={1440}>1 day</option>
-                  </select>
-                </div>
-
-                <div className="flex justify-end">
-                  {isSavingSettings ? (
-                    <div className="flex items-center text-gray-600">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                      Saving...
-                    </div>
-                  ) : (
-                    <button
-                      onClick={handleSaveNotificationSettings}
-                      className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
-                    >
-                      Save Notification Settings
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Pending Events */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-8">
           <div className="px-6 py-4 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-medium text-gray-900">Pending Events</h2>
-              <button
-                onClick={handleTriggerWorkflow}
-                disabled={isTriggeringWorkflow}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 text-sm font-medium"
-              >
-                {isTriggeringWorkflow ? 'Processing...' : 'Scan for New Events'}
-              </button>
-            </div>
+            <h3 className="text-lg font-medium text-gray-900">Pending Events</h3>
+            <p className="text-sm text-gray-600">Review and approve events extracted from your emails</p>
           </div>
           <div className="p-6">
-            {loadingEvents ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="mt-2 text-gray-600">Loading events...</p>
+            {isLoadingEvents ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <span className="ml-2 text-gray-600">Loading events...</span>
               </div>
             ) : pendingEvents.length === 0 ? (
               <div className="text-center py-8">
-                <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No pending events</h3>
-                <p className="text-gray-600">Your AI assistant will automatically detect events from your emails and show them here for approval.</p>
+                <h3 className="mt-2 text-sm font-medium text-gray-900">No pending events</h3>
+                <p className="mt-1 text-sm text-gray-500">Events extracted from emails will appear here for review.</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -840,107 +641,239 @@ export default function Dashboard() {
                   <div key={event.id} className="border border-gray-200 rounded-lg p-4">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        {editingEvent === event.id ? (
-                          <div className="space-y-3">
-                            <input
-                              type="text"
-                              value={editForm.title || event.title}
-                              onChange={(e) => setEditForm(prev => ({ ...prev, title: e.target.value }))}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              placeholder="Event title"
-                            />
-                            <textarea
-                              value={editForm.description || event.description}
-                              onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              rows={3}
-                              placeholder="Event description"
-                            />
-                            <div className="grid grid-cols-2 gap-3">
-                              <input
-                                type="datetime-local"
-                                value={editForm.startDate || event.startDate}
-                                onChange={(e) => setEditForm(prev => ({ ...prev, startDate: e.target.value }))}
-                                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              />
-                              <input
-                                type="datetime-local"
-                                value={editForm.endDate || event.endDate}
-                                onChange={(e) => setEditForm(prev => ({ ...prev, endDate: e.target.value }))}
-                                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              />
-                            </div>
-                            <input
-                              type="text"
-                              value={editForm.location || event.location || ''}
-                              onChange={(e) => setEditForm(prev => ({ ...prev, location: e.target.value }))}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              placeholder="Location (optional)"
-                            />
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={() => handleSaveEvent(event.id)}
-                                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setEditingEvent(null)
-                                  setEditForm({})
-                                }}
-                                className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 text-sm"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div>
-                            <div className="flex items-center space-x-2 mb-2">
-                              <h3 className="text-lg font-medium text-gray-900">{event.title}</h3>
-                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${getConfidenceColor(event.confidenceScore)}`}>
-                                {Math.round(event.confidenceScore * 100)}% confidence
-                              </span>
-                            </div>
-                            <p className="text-gray-600 mb-2">{event.description}</p>
-                            <div className="text-sm text-gray-500 space-y-1">
-                              <p><strong>Start:</strong> {formatDate(event.startDate)}</p>
-                              <p><strong>End:</strong> {formatDate(event.endDate)}</p>
-                              {event.location && <p><strong>Location:</strong> {event.location}</p>}
-                              <p><strong>Source:</strong> {event.source}</p>
-                              <p><strong>Extracted from:</strong> {event.extractedFrom}</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      {editingEvent !== event.id && (
-                        <div className="flex space-x-2 ml-4">
-                          <button
-                            onClick={() => setEditingEvent(event.id)}
-                            className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleApproveEvent(event.id)}
-                            className="px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => handleRejectEvent(event.id)}
-                            className="px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
-                          >
-                            Reject
-                          </button>
+                        <h4 className="text-lg font-medium text-gray-900">{event.title}</h4>
+                        <div className="mt-2 space-y-1">
+                          <p className="text-sm text-gray-600">
+                            <span className="font-medium">Date:</span> {new Date(event.startDate).toLocaleDateString()}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            <span className="font-medium">Time:</span> {new Date(event.startDate).toLocaleTimeString()}
+                          </p>
+                          {event.location && (
+                            <p className="text-sm text-gray-600">
+                              <span className="font-medium">Location:</span> {event.location}
+                            </p>
+                          )}
+                          {event.description && (
+                            <p className="text-sm text-gray-600">
+                              <span className="font-medium">Description:</span> {event.description}
+                            </p>
+                          )}
+                          <p className="text-xs text-gray-500">
+                            <span className="font-medium">From email:</span> {event.extractedFrom}
+                          </p>
                         </div>
-                      )}
+                      </div>
+                      <div className="ml-4 flex space-x-2">
+                        <button
+                          onClick={() => approveEvent(event.id)}
+                          className="px-3 py-1 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => rejectEvent(event.id)}
+                          className="px-3 py-1 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                        >
+                          Reject
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Notification Settings */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-8">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-medium text-gray-900">Notification Settings</h3>
+                <p className="text-sm text-gray-600">Configure how you receive notifications</p>
+              </div>
+              <button
+                onClick={() => setShowNotificationSettings(!showNotificationSettings)}
+                className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {showNotificationSettings ? 'Hide Settings' : 'Configure'}
+              </button>
+            </div>
+          </div>
+          
+          {showNotificationSettings && (
+            <div className="p-6">
+              <div className="space-y-6">
+                {/* Email Notifications */}
+                <div>
+                  <h4 className="text-md font-medium text-gray-900 mb-3">Email Notifications</h4>
+                  <div className="space-y-3">
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={notificationSettings.emailAlerts}
+                        onChange={(e) => setNotificationSettings(prev => ({
+                          ...prev,
+                          emailAlerts: e.target.checked
+                        }))}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <span className="ml-2 text-sm text-gray-700">Enable email alerts</span>
+                    </label>
+                    
+                    {notificationSettings.emailAlerts && (
+                      <div className="ml-6 space-y-2">
+                        <label className="block text-sm text-gray-600 mb-1">Email Address</label>
+                        <input
+                          type="email"
+                          value={notificationSettings.emailAddress}
+                          onChange={(e) => setNotificationSettings(prev => ({
+                            ...prev,
+                            emailAddress: e.target.value
+                          }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="Enter email address"
+                        />
+                        <label className="block text-sm text-gray-600 mb-1">Reminder Timing (minutes)</label>
+                        <input
+                          type="number"
+                          value={notificationSettings.reminderTiming}
+                          onChange={(e) => setNotificationSettings(prev => ({
+                            ...prev,
+                            reminderTiming: parseInt(e.target.value) || 30
+                          }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          min="1"
+                          max="1440"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* WhatsApp Notifications */}
+                <div>
+                  <h4 className="text-md font-medium text-gray-900 mb-3">WhatsApp Notifications</h4>
+                  <div className="space-y-3">
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={notificationSettings.whatsappAlerts}
+                        onChange={(e) => setNotificationSettings(prev => ({
+                          ...prev,
+                          whatsappAlerts: e.target.checked
+                        }))}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <span className="ml-2 text-sm text-gray-700">Enable WhatsApp alerts</span>
+                    </label>
+                    
+                    {notificationSettings.whatsappAlerts && (
+                      <div className="ml-6">
+                        <label className="block text-sm text-gray-600 mb-1">WhatsApp Number</label>
+                        <input
+                          type="tel"
+                          value={notificationSettings.whatsappNumber || ''}
+                          onChange={(e) => setNotificationSettings(prev => ({
+                            ...prev,
+                            whatsappNumber: e.target.value
+                          }))}
+                          placeholder="+1234567890"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Save Button */}
+                <div className="pt-4 border-t border-gray-200">
+                  <button
+                    onClick={saveNotificationSettings}
+                    disabled={isSavingSettings}
+                    className="px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
+                  >
+                    {isSavingSettings ? 'Saving...' : 'Save Settings'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Workflow Controls & Recent Activity */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          {/* Workflow Trigger */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-medium text-gray-900">Manual Workflow</h3>
+              <p className="text-sm text-gray-600">Trigger email processing manually</p>
+            </div>
+            <div className="p-6">
+              <div className="text-center">
+                <div className="mb-4">
+                  <svg className="mx-auto h-12 w-12 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+                <h4 className="text-lg font-medium text-gray-900 mb-2">Process Emails Now</h4>
+                <p className="text-sm text-gray-600 mb-4">
+                  Manually trigger the email processing workflow to check for new events and reminders.
+                </p>
+                <button
+                  onClick={triggerWorkflow}
+                  disabled={isProcessingWorkflow}
+                  className="px-6 py-3 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isProcessingWorkflow ? (
+                    <>
+                      <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Processing...
+                    </>
+                  ) : (
+                    'Trigger Workflow'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Recent Activity */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-medium text-gray-900">Recent Activity</h3>
+              <p className="text-sm text-gray-600">Latest system activities and updates</p>
+            </div>
+            <div className="p-6">
+              {recentActivity.length === 0 ? (
+                <div className="text-center py-8">
+                  <svg className="mx-auto h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="mt-2 text-sm text-gray-500">No recent activity</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {recentActivity.map((activity) => (
+                    <div key={activity.id} className="flex items-start space-x-3">
+                      <div className={`flex-shrink-0 w-2 h-2 rounded-full mt-2 ${
+                        activity.type === 'workflow' ? 'bg-blue-500' :
+                        activity.type === 'event' ? 'bg-green-500' :
+                        activity.type === 'error' ? 'bg-red-500' : 'bg-gray-500'
+                      }`}></div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-900">{activity.message}</p>
+                        <p className="text-xs text-gray-500">
+                          {activity.timestamp.toLocaleTimeString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -979,3 +912,4 @@ export default function Dashboard() {
     </div>
   )
 }
+

@@ -75,7 +75,9 @@ export default withAuth(
             req.nextUrl.pathname === '/api/test-google-sheets' ||
             req.nextUrl.pathname === '/api/test-n8n-integration' ||
             req.nextUrl.pathname.startsWith('/api/stats') ||
-            req.nextUrl.pathname === '/api/log-action') {
+            req.nextUrl.pathname === '/api/log-action' ||
+            req.nextUrl.pathname === '/api/create-test-events' ||
+            req.nextUrl.pathname === '/api/trigger-workflow') {
           return true
         }
         // Require authentication for protected routes

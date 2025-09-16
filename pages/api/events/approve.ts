@@ -26,13 +26,25 @@ export default async function handler(
       return res.status(400).json({ error: 'Event ID is required' });
     }
 
-    // Find the user
-    const user = await prisma.user.findUnique({
+    // Find or create the user
+    let user = await prisma.user.findUnique({
       where: { email: session.user?.email! }
     });
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      // Create user if they don't exist
+      user = await prisma.user.create({
+        data: {
+          email: session.user?.email!,
+          name: session.user?.name || null,
+          image: session.user?.image || null,
+          provider: 'google',
+          role: 'PARENT',
+          isActive: true,
+          lastLoginAt: new Date()
+        }
+      });
+      console.log('✅ Created new user during event approval:', user.email);
     }
 
     // Find and update the pending event
